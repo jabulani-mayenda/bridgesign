@@ -1,0 +1,22 @@
+# BridgeSign — Pinned dependencies for reproducible cloud deployment
+# Generated from local pip freeze to prevent model deserialization mismatches
+Flask==3.1.3
+flask-cors==6.0.2
+flask-sock==0.7.0
+gunicorn==23.0.0
+simple-websocket==1.1.0
+mediapipe==0.10.33
+numpy==2.4.4
+onnx==1.21.0
+onnxruntime==1.26.0
+onnxscript==0.7.0
+opencv-python==4.13.0.92
+Pillow==12.1.1
+pyttsx3==2.99
+requests==2.34.2
+scikit-learn==1.8.0
+scipy==1.17.1
+joblib==1.5.3
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.12.0+cpu
+Werkzeug==3.1.7

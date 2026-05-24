@@ -1,0 +1,2470 @@
+{
+  "href": "http://127.0.0.1:5000/static/avatar/cwasa_player.html?v=cwasa-asl-dict-20260521",
+  "hasCWASA": true,
+  "surfaceReady": true,
+  "canvas": {
+    "exists": true,
+    "w": 762,
+    "h": 483,
+    "clientW": 762,
+    "clientH": 483
+  },
+  "results": [
+    {
+      "label": "A",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "avatarready",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "A",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "AMBULANCE",
+      "ok": true,
+      "error": "",
+      "frames": 26,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "AMBULANCE",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 26
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "B",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "B",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "C",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "C",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "D",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "D",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "DANGER",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "DANGER",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "DOCTOR",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "DOCTOR",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "E",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "E",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "EMERGENCY",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "EMERGENCY",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "F",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "F",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "FIRE",
+      "ok": true,
+      "error": "",
+      "frames": 39,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "FIRE",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 39
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "FOOD",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "FOOD",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "G",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "G",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "H",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "H",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "HELLO",
+      "ok": true,
+      "error": "",
+      "frames": 20,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "HELLO",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 20
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "HELP",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "HELP",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "HURT",
+      "ok": true,
+      "error": "",
+      "frames": 32,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "HURT",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 32
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "I",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "I",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "J",
+      "ok": true,
+      "error": "",
+      "frames": 20,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "J",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 20
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "K",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "K",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "L",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "L",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "M",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "M",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "MUG",
+      "ok": true,
+      "error": "",
+      "frames": 20,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "MUG",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 20
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "N",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "N",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "NO",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "NO",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "O",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "O",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "P",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "P",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "PAIN",
+      "ok": true,
+      "error": "",
+      "frames": 32,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "PAIN",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 32
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "PLEASE",
+      "ok": true,
+      "error": "",
+      "frames": 26,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "PLEASE",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 26
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "POLICE",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "POLICE",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "Q",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "Q",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "R",
+      "ok": true,
+      "error": "",
+      "frames": 32,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "R",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 32
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "S",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "S",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "SICK",
+      "ok": true,
+      "error": "",
+      "frames": 17,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "SICK",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 17
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "SORRY",
+      "ok": true,
+      "error": "",
+      "frames": 26,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "SORRY",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 26
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "STOP",
+      "ok": true,
+      "error": "",
+      "frames": 19,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "STOP",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 19
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "T",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "T",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "TAKE",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "TAKE",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "THANK_YOU",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "THANK_YOU",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "TOILET",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "TOILET",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "U",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "U",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "V",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "V",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "W",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "W",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "WATER",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "WATER",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "WHAT",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "WHAT",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "WHERE",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "WHERE",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "X",
+      "ok": true,
+      "error": "",
+      "frames": 9,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "X",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 9
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "Y",
+      "ok": true,
+      "error": "",
+      "frames": 29,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "Y",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 29
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "YES",
+      "ok": true,
+      "error": "",
+      "frames": 18,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "YES",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 18
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    },
+    {
+      "label": "Z",
+      "ok": true,
+      "error": "",
+      "frames": 39,
+      "sawSigning": true,
+      "sawLoaded": true,
+      "sawActive": true,
+      "sawIdle": true,
+      "events": [
+        {
+          "type": "debug",
+          "event": "sigmlloading",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "signing",
+          "event": "",
+          "label": "Z",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "sigmlloaded",
+          "label": "",
+          "frames": 39
+        },
+        {
+          "type": "debug",
+          "event": "animactive",
+          "label": "",
+          "frames": null
+        },
+        {
+          "type": "debug",
+          "event": "animidle",
+          "label": "",
+          "frames": null
+        }
+      ],
+      "canvas": {
+        "exists": true,
+        "w": 762,
+        "h": 483,
+        "clientW": 762,
+        "clientH": 483
+      }
+    }
+  ]
+}

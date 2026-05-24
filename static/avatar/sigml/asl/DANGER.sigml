@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<sigml>
+  <hns_sign gloss="danger">
+    <hamnosys_manual>
+      <hamfist/>
+      <hamthumboutmod/>
+      <hamextfingeru/>
+      <hampalmd/>
+      <hamchest/>
+      <hammoveu/>
+    </hamnosys_manual>
+  </hns_sign>
+</sigml>

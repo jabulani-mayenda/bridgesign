@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>BridgeSign – Sign Language Translator</title>
+<!-- PWA -->
+<link rel="manifest" href="/static/manifest.json"/>
+<meta name="theme-color" content="#c1440e"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<link rel="apple-touch-icon" href="/static/icon-192.png"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Lato:wght@300;400;700&family=Caveat:wght@500;700&display=swap"/>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=speech-fallback-20260524"/>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<!-- Three.js Import Map (served locally so the avatar does not depend on CDNs) -->
+<script type="importmap">
+  {
+    "imports": {
+      "three": "/static/lib/three.module.js",
+      "three/addons/loaders/GLTFLoader.js": "/static/lib/GLTFLoader.js",
+      "three/addons/": "/static/lib/",
+      "@pixiv/three-vrm": "/static/lib/three-vrm.module.min.js"
+    }
+  }
+</script>
+</head>
+<body>
+
+<!-- Breathing background -->
+<div class="bg-blob blob-1"></div>
+<div class="bg-blob blob-2"></div>
+<div class="bg-blob blob-3"></div>
+
+<!-- Decorative paper grain overlay -->
+<div class="grain-overlay"></div>
+
+<!-- ── Header ─────────────────────────────────────────────── -->
+<header class="site-header pour-in">
+  <div class="logo">
+    <span class="logo-mark">◎</span>
+    <span class="logo-name">BridgeSign</span>
+  </div>
+  <nav class="nav-tabs">
+    <button class="tab-btn active" data-tab="live">
+      <i data-lucide="camera" width="15" height="15"></i> Live
+    </button>
+    <button class="tab-btn" data-tab="image">
+      <i data-lucide="image" width="15" height="15"></i> Image
+    </button>
+    <button class="tab-btn" data-tab="learn">
+      <i data-lucide="graduation-cap" width="15" height="15"></i> Learn
+    </button>
+    <button class="tab-btn" data-tab="motion">
+      <i data-lucide="person-standing" width="15" height="15"></i> Motion
+    </button>
+    <button class="tab-btn" data-tab="speech">
+      <i data-lucide="mic" width="15" height="15"></i> Speech
+    </button>
+    <button class="tab-btn" data-tab="call">
+      <i data-lucide="video" width="15" height="15"></i> Call
+    </button>
+    <button class="tab-btn" data-tab="emergency">
+      <i data-lucide="bell-ring" width="15" height="15"></i> Emergency
+    </button>
+    <button class="tab-btn" data-tab="stats">
+      <i data-lucide="bar-chart-2" width="15" height="15"></i> Stats
+    </button>
+  </nav>
+  <div class="header-right">
+    <div class="user-chip">
+      <i data-lucide="user-circle" width="16" height="16"></i>
+      <span>{{ username }}</span>
+    </div>
+    <div class="status-pill" id="statusPill">Ready</div>
+    <a href="/logout" class="logout-btn" title="Sign out">
+      <i data-lucide="log-out" width="16" height="16"></i>
+    </a>
+  </div>
+</header>
+
+<!-- ══ LIVE TAB ════════════════════════════════════════════ -->
+<main class="tab-panel active" id="tab-live">
+  <div class="live-layout">
+
+    <!-- Camera blob -->
+    <div class="camera-blob-wrap pour-in delay-1">
+      <!-- Decorative ring -->
+      <div class="deco-ring"></div>
+      <div class="camera-container" id="cameraContainer">
+        <video id="videoFeed" autoplay playsinline muted style="display:none;width:100%;height:100%;object-fit:cover;border-radius:inherit;transform:scaleX(-1);"></video>
+        <canvas id="inferCanvas" style="display:none"></canvas>
+        <div class="camera-idle" id="cameraIdle">
+          <div class="idle-icon">
+            <i data-lucide="hand" width="52" height="52" style="color:var(--terracotta);opacity:.4"></i>
+          </div>
+          <div class="idle-dots"><span></span><span></span><span></span></div>
+          <p class="idle-text">Ready when you are.<br/>Just start signing ✨</p>
+        </div>
+        <div class="ripple-container" id="rippleContainer"></div>
+      </div>
+      <div class="live-tracking-strip">
+        <span><i data-lucide="film" width="13" height="13"></i><b id="liveFrameCount">0</b> frames</span>
+        <span><i data-lucide="scan" width="13" height="13"></i><b id="livePartStatus">No hand</b></span>
+        <span><i data-lucide="dot" width="13" height="13"></i><b id="liveLandmarkStatus">0</b> landmarks</span>
+      </div>
+      <!-- Floating decorative leaf -->
+      <div class="deco-leaf">
+        <svg viewBox="0 0 60 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M30 5 Q55 25 50 55 Q40 75 30 75 Q20 75 10 55 Q5 25 30 5Z" fill="var(--sage)" opacity=".35"/>
+          <line x1="30" y1="8" x2="30" y2="72" stroke="var(--sage)" stroke-width="1.5" opacity=".5"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Right: translation + controls -->
+    <div class="translation-column">
+      <!-- Translation card -->
+      <div class="translation-card pour-in delay-2">
+        <p class="card-eyebrow">
+          <i data-lucide="zap" width="12" height="12"></i>
+          Detected Sign
+        </p>
+        <div class="sign-display" id="signDisplay" data-state="no_hand">–</div>
+        <div class="confidence-wrap">
+          <div class="confidence-fluid" id="confidenceFluid"></div>
+          <span class="confidence-label" id="confidenceLabel">–</span>
+        </div>
+        <div class="sign-feedback" id="signFeedback"></div>
+        <div class="sign-state-msg" id="signStateMsg"></div>
+      </div>
+
+      <!-- Mode toggle -->
+      <div class="mode-toggle-wrap pour-in delay-3" id="modeToggleWrap">
+        <span class="mode-toggle-label">Mode:</span>
+        <div class="mode-toggle">
+          <button class="mode-btn active" id="modeLetter" onclick="switchMode('letter')">
+            <i data-lucide="type" width="13" height="13"></i> Letter
+          </button>
+          <button class="mode-btn" id="modeWord" onclick="switchMode('word')">
+            <i data-lucide="align-left" width="13" height="13"></i> Word
+          </button>
+        </div>
+      </div>
+
+      <!-- Word buffer (visible in word mode only) -->
+      <div class="word-buffer-card pour-in delay-3" id="wordBufferCard" style="display:none">
+        <p class="card-eyebrow">
+          <i data-lucide="layers" width="12" height="12"></i>
+          Building Word
+        </p>
+        <div class="word-buffer-display" id="wordBufferDisplay">
+          <span id="wordBufferText">–</span>
+          <span class="buf-cursor"></span>
+        </div>
+        <div class="last-word-row">
+          <span class="last-word-label">Last word:</span>
+          <span class="last-word-val" id="lastWordVal">—</span>
+          <button class="last-word-speak" onclick="speakLastWord()" title="Speak last word">
+            <i data-lucide="volume-2" width="13" height="13"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="control-card pour-in delay-4">
+        <button class="action-btn start-btn" id="camToggleBtn" onclick="toggleCamera()">
+          <i data-lucide="video" width="16" height="16"></i>
+          Start Camera
+        </button>
+        <button class="action-btn speak-btn" onclick="speakLast()">
+          <i data-lucide="volume-2" width="16" height="16"></i>
+          Speak
+        </button>
+        <button class="action-btn clear-btn" onclick="clearLog()">
+          <i data-lucide="trash-2" width="14" height="14"></i>
+          Clear
+        </button>
+      </div>
+
+      <!-- Log -->
+      <div class="recent-wrap pour-in delay-4" id="recentWrap">
+        <p class="card-eyebrow">
+          <i data-lucide="clock" width="12" height="12"></i>
+          Recent Signs
+        </p>
+        <div class="recent-row" id="recentRow">
+          <span class="recent-empty">None yet…</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Hero stat strip -->
+  <div class="stat-strip pour-in delay-4">
+    <div class="stat-strip-item">
+      <i data-lucide="activity" width="20" height="20"></i>
+      <span id="stripTotal">0</span>
+      <label>Today's Signs</label>
+    </div>
+    <div class="stat-strip-divider"></div>
+    <div class="stat-strip-item">
+      <i data-lucide="award" width="20" height="20"></i>
+      <span id="stripTop">–</span>
+      <label>Top Sign</label>
+    </div>
+    <div class="stat-strip-divider"></div>
+    <div class="stat-strip-item">
+      <i data-lucide="clock" width="20" height="20"></i>
+      <span id="stripTime">00:00</span>
+      <label>Session Time</label>
+    </div>
+  </div>
+
+  <!-- Sentence strip (word mode only) -->
+  <div class="sentence-strip pour-in" id="sentenceStrip" style="display:none">
+    <div class="sentence-strip-left">
+      <p class="card-eyebrow" style="margin-bottom:8px">
+        <i data-lucide="message-square" width="12" height="12"></i>
+        Current Sentence
+      </p>
+      <div class="sentence-display" id="sentenceDisplay">—</div>
+    </div>
+    <button class="action-btn speak-btn sentence-speak-btn" onclick="speakSentence()">
+      <i data-lucide="volume-2" width="15" height="15"></i>
+      Speak
+    </button>
+  </div>
+</main>
+
+<!-- ══ IMAGE TAB ══════════════════════════════════════════ -->
+<main class="tab-panel" id="tab-image">
+  <div class="page-hero pour-in">
+    <h2 class="hero-title">Translate a Photo</h2>
+    <p class="hero-sub">Upload any image with a hand sign — we'll identify it for you.</p>
+  </div>
+  <div class="image-layout">
+    <div class="img-drop-zone pour-in delay-1" id="imgDropZone" onclick="document.getElementById('imgInput').click()">
+      <img id="previewImg" src="" alt="" style="display:none"/>
+      <div id="dropHint">
+        <div class="drop-icon-wrap">
+          <i data-lucide="upload-cloud" width="48" height="48" style="color:var(--terracotta);opacity:.5"></i>
+        </div>
+        <p>Click or drag an image here</p>
+        <span>JPG, PNG, BMP supported</span>
+      </div>
+      <input type="file" id="imgInput" accept="image/*" style="display:none" onchange="uploadImage(event)"/>
+    </div>
+    <div class="img-result-card pour-in delay-2">
+      <p class="card-eyebrow"><i data-lucide="sparkles" width="12" height="12"></i> Translation Result</p>
+      <div class="sign-display" id="imgSignDisplay">–</div>
+      <div class="confidence-wrap">
+        <div class="confidence-fluid" id="imgConfFluid"></div>
+        <span class="confidence-label" id="imgConfLabel">–</span>
+      </div>
+      <button class="action-btn speak-btn" onclick="speakImgResult()" style="margin-top:20px;width:100%">
+        <i data-lucide="volume-2" width="16" height="16"></i>
+        Speak Result
+      </button>
+    </div>
+  </div>
+</main>
+
+<!-- ══ LEARN TAB ══════════════════════════════════════════ -->
+<main class="tab-panel" id="tab-learn">
+  <div class="learn-page">
+    <div class="learn-hero pour-in">
+      <i data-lucide="hand-metal" width="48" height="48" style="color:var(--terracotta);margin-bottom:12px"></i>
+      <h2 class="hero-title">Practice a Sign</h2>
+      <p class="hero-sub">Pick a sign below — we'll show you how to form it correctly.</p>
+      <div class="sign-picker">
+        <label>Choose a sign:</label>
+        <div class="pill-group" id="learnPills">
+          <button class="pill active" onclick="selectSign(this,'Hello')">Hello</button>
+          <button class="pill" onclick="selectSign(this,'Thank you')">Thank you</button>
+          <button class="pill" onclick="selectSign(this,'Yes')">Yes</button>
+          <button class="pill" onclick="selectSign(this,'No')">No</button>
+          <button class="pill" onclick="selectSign(this,'I love you')">I love you</button>
+        </div>
+      </div>
+      <div class="lesson-tip" id="lessonTip">Select a sign above to see how to form it.</div>
+      <button class="action-btn start-btn" onclick="fetchLesson()" style="margin-top:8px">
+        <i data-lucide="lightbulb" width="16" height="16"></i>
+        Show Me How
+      </button>
+    </div>
+
+    <!-- Step guide cards -->
+    <div class="learn-cards pour-in delay-2">
+      <div class="learn-step-card">
+        <div class="step-num">1</div>
+        <i data-lucide="eye" width="28" height="28" style="color:var(--terracotta)"></i>
+        <h3>Watch</h3>
+        <p>Read the tip and study the description carefully before trying.</p>
+      </div>
+      <div class="learn-step-card">
+        <div class="step-num">2</div>
+        <i data-lucide="hand" width="28" height="28" style="color:var(--honey)"></i>
+        <h3>Practice</h3>
+        <p>Form the sign slowly in front of your camera.</p>
+      </div>
+      <div class="learn-step-card">
+        <div class="step-num">3</div>
+        <i data-lucide="check-circle" width="28" height="28" style="color:var(--sage)"></i>
+        <h3>Confirm</h3>
+        <p>Switch to Live tab — BridgeSign will recognise your sign and celebrate.</p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ══ AVATAR SIGN PLAYER TAB ════════════════════════════ -->
+<main class="tab-panel" id="tab-motion">
+  <div class="motion-page-header pour-in">
+    <div>
+      <p class="card-eyebrow">
+        <i data-lucide="person-standing" width="12" height="12"></i>
+        Avatar Sign Player
+      </p>
+      <h2 class="hero-title">Play Saved Hand Signs</h2>
+    </div>
+    <div class="motion-status-pill" id="motionStatus">Idle</div>
+  </div>
+
+  <div class="motion-recorder-layout pour-in delay-1">
+    <section class="motion-avatar-card">
+      <div class="motion-card-head">
+        <p class="card-eyebrow">
+          <i data-lucide="user" width="12" height="12"></i>
+          Preview Avatar
+        </p>
+        <span id="motionClipStatus">Ready</span>
+      </div>
+      <div id="motionAvatarContainer" class="motion-avatar-viewport">
+        <div id="motionAvatarLoading" class="speech-avatar-loader">Loading Avatar...</div>
+      </div>
+      <div class="motion-player-panel">
+        <div class="motion-form-row">
+          <label for="motionTextInput">Text or sign label</label>
+          <input id="motionTextInput" type="text" value="HELLO THANK_YOU" autocomplete="off" spellcheck="false"/>
+        </div>
+        <div class="motion-actions">
+          <button class="action-btn start-btn" id="motionPlayTextBtn" type="button" onclick="playMotionText()">
+            <i data-lucide="play" width="16" height="16"></i>
+            Play Text
+          </button>
+          <button class="action-btn speak-btn" id="motionPlayHelloBtn" type="button" onclick="playSavedSign('HELLO')">
+            <i data-lucide="hand-metal" width="16" height="16"></i>
+            Hello
+          </button>
+          <button class="action-btn clear-btn" id="motionPlayThanksBtn" type="button" onclick="playSavedSign('THANK_YOU')">
+            <i data-lucide="hand-heart" width="16" height="16"></i>
+            Thanks
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="motion-library-card">
+      <div class="motion-card-head">
+        <p class="card-eyebrow">
+          <i data-lucide="library" width="12" height="12"></i>
+          Saved Sign Library
+        </p>
+        <span id="motionLibraryCount">Loading</span>
+      </div>
+      <div class="motion-library-grid" id="motionLibraryGrid">
+        <span class="stt-guidance-empty">Loading saved signs...</span>
+      </div>
+    </section>
+  </div>
+
+  <details class="motion-recorder-details pour-in delay-2">
+    <summary>
+      <span>Optional: experimental motion recorder</span>
+      <i data-lucide="chevron-down" width="16" height="16"></i>
+    </summary>
+    <div class="motion-recorder-layout motion-recorder-secondary">
+      <section class="motion-capture-card">
+        <div class="motion-card-head">
+          <p class="card-eyebrow">
+            <i data-lucide="camera" width="12" height="12"></i>
+            Capture
+          </p>
+          <span id="motionFrameCount">0 frames</span>
+        </div>
+        <div class="motion-video-stage">
+          <video id="motionVideo" autoplay playsinline muted></video>
+          <canvas id="motionOverlay"></canvas>
+          <div class="motion-video-empty" id="motionVideoEmpty">Camera off</div>
+        </div>
+        <div class="motion-diagnostics">
+          <span id="motionProcessedCount">0 processed</span>
+          <span id="motionPartsStatus">Parts: none</span>
+          <span id="motionLandmarkStatus">0 landmarks</span>
+        </div>
+        <div class="motion-form-row">
+          <label for="motionLabelInput">Sign Label</label>
+          <input id="motionLabelInput" type="text" value="HELLO" autocomplete="off" spellcheck="false"/>
+        </div>
+        <div class="motion-actions">
+          <button class="action-btn start-btn" id="motionCameraBtn" type="button" onclick="toggleMotionCamera()">
+            <i data-lucide="video" width="16" height="16"></i>
+            Camera
+          </button>
+          <button class="action-btn speak-btn" id="motionRecordBtn" type="button" onclick="startMotionRecording()" disabled>
+            <i data-lucide="circle" width="16" height="16"></i>
+            Record
+          </button>
+          <button class="action-btn clear-btn" id="motionStopBtn" type="button" onclick="stopMotionRecording()" disabled>
+            <i data-lucide="square" width="16" height="16"></i>
+            Stop
+          </button>
+        </div>
+      </section>
+
+      <section class="motion-output-card motion-recorder-output">
+      <div class="motion-card-head">
+        <p class="card-eyebrow">
+          <i data-lucide="braces" width="12" height="12"></i>
+          Generated Clip
+        </p>
+      </div>
+      <textarea id="motionClipOutput" readonly spellcheck="false"></textarea>
+      <div class="motion-actions">
+        <button class="action-btn start-btn" id="motionPreviewBtn" type="button" onclick="previewMotionClip()" disabled>
+          <i data-lucide="play" width="16" height="16"></i>
+          Preview
+        </button>
+        <button class="action-btn speak-btn" id="motionSaveBtn" type="button" onclick="saveMotionClip()" disabled>
+          <i data-lucide="save" width="16" height="16"></i>
+          Save
+        </button>
+        <button class="action-btn clear-btn" id="motionDownloadBtn" type="button" onclick="downloadMotionClip()" disabled>
+          <i data-lucide="download" width="16" height="16"></i>
+          Download
+        </button>
+      </div>
+      </section>
+    </div>
+  </details>
+</main>
+
+<!-- ══ EMERGENCY TAB ══════════════════════════════════════ -->
+<main class="tab-panel" id="tab-emergency">
+  <div class="page-hero pour-in">
+    <i data-lucide="shield-alert" width="36" height="36" style="color:var(--terracotta)"></i>
+    <h2 class="hero-title" style="color:var(--terracotta)">Emergency Phrases</h2>
+    <p class="hero-sub">Tap any card — your browser will speak it aloud instantly.</p>
+  </div>
+
+  <!-- Add custom phrase -->
+  <div class="add-phrase-bar pour-in delay-1">
+    <i data-lucide="plus-circle" width="18" height="18" style="color:var(--terracotta)"></i>
+    <input type="text" id="customPhraseInput" placeholder="Type a custom phrase to add…"/>
+    <button class="action-btn start-btn" onclick="addCustomPhrase()" style="width:auto;padding:10px 22px">
+      <i data-lucide="plus" width="14" height="14"></i> Add
+    </button>
+  </div>
+
+  <div class="emergency-grid pour-in delay-2" id="emergencyGrid">
+    <!-- filled by JS -->
+  </div>
+</main>
+
+<!-- ══ STATS TAB ══════════════════════════════════════════ -->
+<main class="tab-panel" id="tab-stats">
+  <div class="page-hero pour-in">
+    <h2 class="hero-title">Your Session Stats</h2>
+    <p class="hero-sub">Track your signing progress over time.</p>
+  </div>
+  <div class="stats-cards pour-in delay-1" id="statsCards"></div>
+  <div class="breakdown-wrap pour-in delay-2" id="breakdownWrap"></div>
+</main>
+
+<!-- ══ SPEECH TAB ══════════════════════════════════════════ -->
+<main class="tab-panel" id="tab-speech">
+  <div class="speech-page-header pour-in">
+    <div>
+      <p class="card-eyebrow">
+        <i data-lucide="mic" width="12" height="12"></i>
+        Speech Module
+      </p>
+      <h2 class="hero-title">Speech to Sign</h2>
+    </div>
+    <div class="stt-status-indicator" id="sttStatusIndicator">
+      <span class="stt-status-dot"></span>
+      <span class="stt-status-text" id="sttStatusText">Microphone off</span>
+    </div>
+  </div>
+
+  <div class="speech-workspace pour-in delay-1">
+    <section class="speech-avatar-card">
+      <div class="speech-avatar-header">
+        <p class="card-eyebrow">
+          <i data-lucide="user" width="12" height="12"></i>
+          Sign Language Avatar
+        </p>
+        <span class="speech-avatar-state">3D</span>
+      </div>
+      <div id="avatarContainer" class="speech-avatar-viewport">
+        <div id="avatarLoading" class="speech-avatar-loader">Loading Avatar…</div>
+      </div>
+      <div id="sttSigningProgress" class="speech-signing-progress" style="display:none"></div>
+    </section>
+
+    <aside class="speech-console">
+      <div class="speech-console-head">
+        <p class="card-eyebrow">
+          <i data-lucide="radio" width="12" height="12"></i>
+          Live Capture
+        </p>
+      </div>
+      <button class="action-btn stt-mic-btn" id="sttMicBtn" onclick="toggleSTT()">
+        <i data-lucide="mic" width="20" height="20"></i>
+        <span id="sttMicLabel">Start Listening</span>
+      </button>
+
+      <div class="speech-manual-row">
+        <input id="sttManualInput" type="text" placeholder="Type a phrase" autocomplete="off" spellcheck="true"/>
+        <button class="action-btn speak-btn speech-manual-btn" id="sttManualBtn" type="button" onclick="submitSpeechText()">
+          <i data-lucide="send" width="16" height="16"></i>
+          Send
+        </button>
+      </div>
+
+      <div class="speech-readout">
+        <div class="speech-readout-label">Transcript</div>
+        <div class="speech-transcript-inline" id="sttTranscriptDisplay">
+          <span class="stt-transcript-placeholder">Waiting for speech...</span>
+        </div>
+      </div>
+
+      <div class="speech-readout speech-readout-gloss">
+        <div class="speech-readout-label">ASL Gloss</div>
+        <div class="speech-gloss-bar" id="sttGlossDisplay">No interpreted gloss yet.</div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Guidance + History — two columns below -->
+  <div class="speech-bottom-grid pour-in delay-2">
+    <!-- Sign guidance panel -->
+    <div class="stt-guidance-card">
+      <p class="card-eyebrow">
+        <i data-lucide="hand-metal" width="12" height="12"></i>
+        How to sign it
+      </p>
+      <div class="stt-guidance-grid" id="sttGuidanceGrid">
+        <div class="stt-guidance-empty">Sign guidance will appear here after you speak.</div>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div class="stt-history-card">
+      <p class="card-eyebrow">
+        <i data-lucide="clock" width="12" height="12"></i>
+        Speech History
+      </p>
+      <div class="stt-history-list" id="sttHistoryList">
+        <span class="stt-history-empty">No speech recorded yet.</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ══ CALL TAB ═══════════════════════════════════════════ -->
+<main class="tab-panel" id="tab-call">
+  <div class="page-hero pour-in">
+    <i data-lucide="video" width="36" height="36" style="color:var(--terracotta)"></i>
+    <h2 class="hero-title">BridgeSign Call</h2>
+    <p class="hero-sub">Create a room link or join with a room code.</p>
+  </div>
+
+  <div class="call-home-grid pour-in delay-1">
+    <section class="call-home-card">
+      <p class="card-eyebrow">
+        <i data-lucide="plus-circle" width="12" height="12"></i>
+        New Room
+      </p>
+      <a class="action-btn start-btn call-home-action" href="/call/new">
+        <i data-lucide="video" width="16" height="16"></i>
+        Create Call Room
+      </a>
+      <div class="call-home-meta">BridgeSign will create a short room code and a shareable link.</div>
+    </section>
+
+    <section class="call-home-card">
+      <p class="card-eyebrow">
+        <i data-lucide="log-in" width="12" height="12"></i>
+        Join Room
+      </p>
+      <div class="call-join-row">
+        <input id="joinRoomInput" type="text" placeholder="Room code or call link" autocomplete="off"/>
+        <button class="action-btn clear-btn call-home-action" type="button" onclick="joinCallRoom()">
+          <i data-lucide="arrow-right" width="16" height="16"></i>
+          Join
+        </button>
+      </div>
+      <div class="call-home-meta">Paste the code or full link your partner shares.</div>
+    </section>
+  </div>
+</main>
+
+<!-- Toast -->
+<div id="toast" class="toast" style="display:none"></div>
+
+<!-- Permission Help -->
+<div id="permissionHelp" class="permission-help" hidden>
+  <div class="permission-help-backdrop" onclick="closePermissionHelp()"></div>
+  <div class="permission-help-card" role="dialog" aria-modal="true" aria-labelledby="permissionHelpTitle">
+    <button class="permission-help-close" type="button" onclick="closePermissionHelp()" aria-label="Close permission help">×</button>
+    <div class="permission-help-kicker" id="permissionHelpKicker">Permission help</div>
+    <h3 class="permission-help-title" id="permissionHelpTitle">Allow access</h3>
+    <p class="permission-help-intro" id="permissionHelpIntro"></p>
+    <ol class="permission-help-steps" id="permissionHelpSteps"></ol>
+    <p class="permission-help-detail" id="permissionHelpDetail"></p>
+    <div class="permission-help-actions">
+      <button class="action-btn start-btn permission-help-primary" id="permissionHelpRetry" type="button">Try Again</button>
+      <button class="action-btn clear-btn permission-help-secondary" type="button" onclick="closePermissionHelp()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="{{ url_for('static', filename='avatar/cwasa_driver.js') }}?v=cwasa-asl-dict-20260521"></script>
+<script type="module" src="{{ url_for('static', filename='avatar/avatar_controller.js') }}?v=cwasa-asl-dict-20260521"></script>
+<script src="{{ url_for('static', filename='avatar/avatar_driver.js') }}?v=cwasa-asl-dict-20260521"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=speech-fallback-20260524"></script>
+<script>lucide.createIcons();</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      .catch(e => console.warn('SW registration failed:', e));
+  }
+</script>
+</body>
+</html>

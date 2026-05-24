@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Create Account · BridgeSign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Lato:wght@400;700&display=swap"/>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"/>
+<style>
+  body { display:flex; align-items:center; justify-content:center; min-height:100vh; }
+  .auth-card {
+    background: rgba(245,240,232,0.92);
+    backdrop-filter: blur(16px);
+    border-radius: 40px 60px 44px 56px;
+    padding: 52px 48px;
+    width: 400px;
+    box-shadow: 0 8px 48px rgba(61,43,31,0.18);
+    animation: pourIn .6s cubic-bezier(0.23,1,0.32,1) both;
+  }
+  .auth-logo { font-family:'Playfair Display',serif; font-size:1.8rem; color:var(--terracotta); margin-bottom:4px; }
+  .auth-tagline { font-size:.9rem; color:var(--earth-mid); margin-bottom:32px; }
+  .auth-card label { display:block; font-size:.75rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--terra-light); margin-bottom:6px; }
+  .auth-card input {
+    width:100%; padding:12px 16px; border:1.5px solid var(--cream-deep);
+    border-radius:50px; background:white; font-family:'Lato',sans-serif;
+    font-size:.95rem; color:var(--earth); margin-bottom:18px; outline:none;
+    transition:border-color .2s;
+  }
+  .auth-card input:focus { border-color:var(--terracotta); }
+  .auth-card .action-btn { width:100%; justify-content:center; font-size:1rem; padding:14px; margin-top:4px; }
+  .auth-link { margin-top:18px; text-align:center; font-size:.88rem; color:var(--earth-mid); }
+  .auth-link a { color:var(--terracotta); font-weight:700; text-decoration:none; }
+  .auth-error { background:rgba(192,83,58,.1); border:1px solid rgba(192,83,58,.3); color:var(--terra-dark); border-radius:12px; padding:10px 16px; font-size:.88rem; margin-bottom:16px; }
+</style>
+</head>
+<body>
+<div class="bg-blob blob-1"></div>
+<div class="bg-blob blob-2"></div>
+<div class="bg-blob blob-3"></div>
+
+<div class="auth-card">
+  <div class="auth-logo">◎ BridgeSign</div>
+  <div class="auth-tagline">Create your personal signing space.</div>
+  {% if error %}<div class="auth-error">{{ error }}</div>{% endif %}
+  <form method="POST">
+    <label>Username</label>
+    <input type="text" name="username" placeholder="choose a username" required autofocus/>
+    <label>Password</label>
+    <input type="password" name="password" placeholder="at least 6 characters" required minlength="6"/>
+    <button type="submit" class="action-btn start-btn">Create Account</button>
+  </form>
+  <div class="auth-link">Already have an account? <a href="/login">Sign in</a></div>
+</div>
+</body>
+</html>

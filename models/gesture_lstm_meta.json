@@ -1,0 +1,87 @@
+{
+  "classes": [
+    "GOODBYE",
+    "HELLO",
+    "HELP",
+    "J",
+    "NO",
+    "PLEASE",
+    "SORRY",
+    "STATIC",
+    "STOP",
+    "THANK_YOU",
+    "WATER",
+    "YES",
+    "Z"
+  ],
+  "best_val_accuracy": 0.9942307692307693,
+  "per_class": {
+    "GOODBYE": {
+      "accuracy": 0.975,
+      "correct": 39,
+      "total": 40
+    },
+    "HELLO": {
+      "accuracy": 1.0,
+      "correct": 40,
+      "total": 40
+    },
+    "HELP": {
+      "accuracy": 1.0,
+      "correct": 40,
+      "total": 40
+    },
+    "J": {
+      "accuracy": 1.0,
+      "correct": 40,
+      "total": 40
+    },
+    "NO": {
+      "accuracy": 0.975,
+      "correct": 39,
+      "total": 40
+    },
+    "PLEASE": {
+      "accuracy": 1.0,
+      "correct": 40,
+      "total": 40
+    },
+    "SORRY": {
+      "accuracy": 1.0,
+      "correct": 40,
+      "total": 40
+    },
+    "STATIC": {
+      "accuracy": 1.0,
+      "correct": 40,
+      "total": 40
+    },
+    "STOP": {
+      "accuracy": 1.0,
+      "correct": 40,
+      "total": 40
+    },
+    "THANK_YOU": {
+      "accuracy": 1.0,
+      "correct": 40,
+      "total": 40
+    },
+    "WATER": {
+      "accuracy": 0.975,
+      "correct": 39,
+      "total": 40
+    },
+    "YES": {
+      "accuracy": 1.0,
+      "correct": 40,
+      "total": 40
+    },
+    "Z": {
+      "accuracy": 1.0,
+      "correct": 40,
+      "total": 40
+    }
+  },
+  "epochs_trained": 26,
+  "model_params": 65634
+}

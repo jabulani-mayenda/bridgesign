@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<sigml>
+  <hns_sign gloss="sick">
+    <hamnosys_manual>
+      <hamfinger23/>
+      <hamextfingeru/>
+      <hampalml/>
+      <hamforehead/>
+      <hamtouch/>
+      <hamplus/>
+      <hamfinger23/>
+      <hamextfingerd/>
+      <hampalml/>
+      <hamstomach/>
+      <hamtouch/>
+    </hamnosys_manual>
+  </hns_sign>
+</sigml>

@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CWASA Player</title>
+  <link rel="stylesheet" href="/static/vendor/cwasa/vhg2026/cwa/cwasa.css" media="print" onload="this.media='all'">
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+      font-family: Arial, sans-serif;
+    }
+
+    #cwasaStage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-width: 220px;
+      min-height: 220px;
+      background: linear-gradient(180deg, #2d3d3d 0%, #1e2a2e 55%, #141c22 100%);
+    }
+
+    .CWASAAvatar {
+      position: absolute;
+      inset: 0;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    .cwasa-status {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 10px;
+      z-index: 5;
+      color: rgba(255, 255, 255, .82);
+      font-size: 12px;
+      line-height: 1.35;
+      text-align: center;
+      pointer-events: none;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, .55);
+    }
+
+    .cwasa-status[data-state="error"] {
+      color: #ffd4c4;
+    }
+
+    .cwasa-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="cwasaStage">
+    <div class="SToCA cwasa-hidden"></div>
+    <div class="CWASAAvatar av0"></div>
+    <div class="CWASAProgress av0 cwasa-hidden"></div>
+    <div class="CWASAStatus av0 cwasa-hidden"></div>
+    <div id="cwasaStatus" class="cwasa-status">Loading CWASA...</div>
+  </div>
+
+  <script>
+    var lgr = window.lgr || {
+      error: console.error.bind(console),
+      warn: console.warn.bind(console),
+      log: console.log.bind(console),
+      info: console.info.bind(console),
+      debug: console.debug ? console.debug.bind(console) : console.info.bind(console),
+      trace: console.trace ? console.trace.bind(console) : (console.debug ? console.debug.bind(console) : console.info.bind(console))
+    };
+    window.lgr = lgr;
+  </script>
+  <script src="/static/vendor/cwasa/vhg2026/cwa/allcsa.js"></script>
+  <script>
+    var statusEl = document.getElementById("cwasaStatus");
+    var readyPromise = null;
+    var isReady = false;
+    var avatarReady = false;
+    var avatarSurfaceReady = false;
+    var pending = [];
+    var playQueue = [];
+    var isPlaying = false;
+    var currentLabel = "";
+
+    // ── Animation-done signalling ──────────────────────────────────
+    // pendingDone is a resolve() set by pumpQueue each sign.
+    // signalDone() calls it once when CWASA reports animidle, or when an
+    // explicit stop/error happens. Slow signs are allowed to keep running.
+    var pendingDone = null;
+    var pendingNoticeTimer = null;
+    function signalDone() {
+      if (!pendingDone) return;          // guard: only fire once
+      clearPendingNotice();
+      var fn = pendingDone;
+      pendingDone = null;
+      fn();
+    }
+
+    function clearPendingNotice() {
+      if (pendingNoticeTimer) {
+        clearTimeout(pendingNoticeTimer);
+        pendingNoticeTimer = null;
+      }
+    }
+
+    function startPendingNotice(label) {
+      clearPendingNotice();
+      var startedAt = Date.now();
+      var cleanLabel = (label || "SIGN").replace(/_/g, " ");
+
+      function tick() {
+        if (!pendingDone) return;
+        var elapsedMs = Date.now() - startedAt;
+        var elapsedSec = Math.round(elapsedMs / 1000);
+        setStatus("Still signing " + cleanLabel + " (" + elapsedSec + "s)");
+        console.info("[CWASA Player] still waiting for animidle after " + elapsedSec + "s:", label);
+        post("debug", { event: "still-playing", label: label, elapsedMs: elapsedMs });
+        pendingNoticeTimer = setTimeout(tick, 15000);
+      }
+
+      pendingNoticeTimer = setTimeout(tick, 15000);
+    }
+    // ──────────────────────────────────────────────────────────────
+
+    var sigmlCache = new Map();
+
+    var SIGML_BY_LABEL = {};
+
+    function setStatus(text, state) {
+      statusEl.textContent = text || "";
+      statusEl.dataset.state = state || "info";
+    }
+
+    function post(type, detail) {
+      window.parent.postMessage({ source: "bridgesign-cwasa", type: type, detail: detail }, "*");
+    }
+
+    function normalizeLabel(label) {
+      return String(label || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    }
+
+    function waitForAvatarSurface() {
+      return new Promise(function(resolve) {
+        var done = function() {
+          if (avatarSurfaceReady) return;
+          avatarSurfaceReady = true;
+          resolve(true);
+        };
+
+        function tick() {
+          if (avatarSurfaceReady) return;
+          var surface = document.querySelector(".CWASAAvatar canvas, .CWASAAvatar .divAv");
+          if (surface) {
+            done();
+          } else {
+            setTimeout(tick, 250);
+          }
+        }
+
+        tick();
+      });
+    }
+
+    function waitForAvatarReady() {
+      return new Promise(function(resolve) {
+        var done = function() {
+          if (!avatarReady) avatarReady = true;
+          resolve(true);
+        };
+
+        if (avatarReady || window.avatarReady === true) {
+          done();
+          return;
+        }
+
+        try {
+          CWASA.addHook("avatarready", done, 0);
+        } catch (err) {
+          console.warn("[CWASA Player] avatarready hook failed", err);
+          waitForAvatarSurface().then(done);
+          return;
+        }
+      });
+    }
+
+    // ── Hooks ──────────────────────────────────────────────────────
+    function addDebugHooks() {
+      function hook(type, handler) {
+        try {
+          CWASA.addHook(type, handler, 0);
+        } catch (err) {
+          console.warn("[CWASA Player] hook failed: " + type, err);
+        }
+      }
+
+      hook("status", function(evt) {
+        if (evt && evt.msg) console.info("[CWASA status]", evt.msg);
+      });
+
+      hook("avatarready", function() {
+        avatarReady = true;
+        setStatus("CWASA avatar ready");
+        post("debug", { event: "avatarready" });
+      });
+
+      hook("sigmlloading", function() {
+        setStatus("Preparing sign");
+        post("debug", { event: "sigmlloading" });
+      });
+
+      hook("sigmlloaded", function(evt) {
+        var frames = (evt && evt.msg) ? (evt.msg.f != null ? evt.msg.f : (evt.msg.frames != null ? evt.msg.frames : null)) : null;
+        setStatus(frames === null ? "Loaded sign" : ("Loaded sign (" + frames + " frames)"));
+        post("debug", { event: "sigmlloaded", frames: frames });
+      });
+
+      hook("animactive", function() {
+        // Animation has actually started on the avatar.
+        setStatus("Signing");
+        post("debug", { event: "animactive" });
+      });
+
+      hook("animidle", function() {
+        // The avatar has finished the sign and returned to idle.
+        // This is the correct, reliable signal to advance the queue.
+        post("debug", { event: "animidle" });
+        // Small gap so the avatar settles before the next sign starts
+        setTimeout(signalDone, 180);
+      });
+    }
+
+    // ── Init ───────────────────────────────────────────────────────
+    function init() {
+      if (!window.CWASA) {
+        setStatus("CWASA script did not load.", "error");
+        post("error", { message: "CWASA script did not load." });
+        return Promise.reject(new Error("CWASA script did not load"));
+      }
+
+      setStatus("Starting CWASA...");
+
+      addDebugHooks();
+
+      readyPromise = Promise.resolve(CWASA.init({
+        useClientConfig: false,
+        useCwaConfig: false,
+        jasBase: "/static/vendor/cwasa/vhg2026/",
+        sigmlBase: "sigml",
+        avJARBase: "avatars",
+        avJSONBase: "avjson",
+        useAvatarJARs: true,
+        animgenFPS: 30,
+        animgenServer: null,
+        avs: ["anna"],
+        avSettings: [{
+          width: 384,
+          height: 320,
+          avList: "avs",
+          initAv: "anna",
+          ambIdle: false,
+          background: null,
+          initCamera: [0.0, 0.53, 2.06, -12.5, 18.0, 30.0, -1.0, -1.0],
+          initSpeed: 1,
+          rateSpeed: 5,
+          allowFrameSteps: false,
+          allowSiGMLText: true
+        }]
+      }))
+      .then(function() { return CWASA.ready || true; })
+      .then(function() { return waitForAvatarReady(); })
+      .then(function() {
+        isReady = true;
+        setStatus("");
+        post("ready", {});
+        while (pending.length) play(pending.shift());
+      })
+      .catch(function(err) {
+        console.error("[CWASA Player] init failed", err);
+        setStatus("CWASA failed to start.", "error");
+        post("error", { message: "CWASA failed to start." });
+        throw err;
+      });
+
+      return readyPromise;
+    }
+
+    // ── SiGML fetch ────────────────────────────────────────────────
+    async function getSigMLForLabel(label) {
+      if (!label) return "";
+      if (sigmlCache.has(label)) return sigmlCache.get(label);
+      try {
+        var res = await fetch("/static/avatar/sigml/asl/" + label + ".sigml", { cache: "no-cache" });
+        if (!res.ok) throw new Error(String(res.status));
+        var text = await res.text();
+        sigmlCache.set(label, text);
+        return text;
+      } catch (_) {
+        var embedded = SIGML_BY_LABEL[label] || "";
+        sigmlCache.set(label, embedded);
+        return embedded;
+      }
+    }
+
+    function reportPlayError(err, label) {
+      console.error("[CWASA Player] play failed", err);
+      setStatus("Could not play " + label + ".", "error");
+      post("error", {
+        message: "Could not play " + label + ".",
+        label: label,
+        cause: (err && err.message) ? err.message : String(err || "")
+      });
+    }
+
+    // ── Queue ──────────────────────────────────────────────────────
+    function play(payload) {
+      if (!isReady) {
+        pending.push(payload);
+        return;
+      }
+      playQueue.push(payload);
+      pumpQueue();
+    }
+
+    async function pumpQueue() {
+      if (isPlaying || !isReady || !playQueue.length) return;
+      isPlaying = true;
+
+      var payload = playQueue.shift();
+      var label = normalizeLabel(payload.label || payload.text);
+      currentLabel = label;
+
+      var sigml = payload.sigml || await getSigMLForLabel(label);
+      if (!sigml) {
+        setStatus("No SiGML yet for " + (label || "that sign") + ".");
+        post("unsupported", { label: label });
+        isPlaying = false;
+        pumpQueue();
+        return;
+      }
+
+      var donePromise = new Promise(function(resolve) {
+        pendingDone = resolve;
+        startPendingNotice(label);
+      });
+
+      try {
+        setStatus("Signing " + label.replace(/_/g, " "));
+        var playResult = CWASA.playSiGMLText(sigml, 0);
+        if (playResult && typeof playResult.catch === "function") {
+          playResult.catch(function(err) {
+            reportPlayError(err, label);
+            signalDone();
+          });
+        }
+        post("signing", { label: label });
+      } catch (err) {
+        reportPlayError(err, label);
+        signalDone(); // don't hang if play() threw synchronously
+      }
+
+      // Wait for animidle before next sign. There is deliberately no duration
+      // timeout here; long CWASA signs should run until the engine is done.
+      await donePromise;
+      isPlaying = false;
+      currentLabel = "";
+      pumpQueue();
+    }
+
+    // ── Message listener ───────────────────────────────────────────
+    window.addEventListener("message", function(event) {
+      var data = event.data || {};
+      if (data.source !== "bridgesign-cwasa-parent") return;
+      if (data.type === "play") play(data.payload || {});
+      if (data.type === "stop" && window.CWASA && isReady) {
+        CWASA.stopSiGML(0);
+        signalDone(); // unblock queue if externally stopped
+      }
+    });
+
+    window.addEventListener("load", function() {
+      init().catch(function() {});
+    });
+
+    window.addEventListener("unhandledrejection", function(event) {
+      var reason = event.reason;
+      var message = (reason && reason.message) ? reason.message : String(reason || "");
+      if (!message || !/lgr|SiGML|sigml|CWASA/i.test(message)) return;
+      console.error("[CWASA Player] unhandled CWASA rejection", reason);
+      post("error", { message: "CWASA could not complete the sign.", label: currentLabel, cause: message });
+      event.preventDefault();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+import os
+
+# Read from environment for cloud deployment (Render, Heroku, etc.)
+# Falls back to dev defaults when running locally.
+SECRET_KEY = os.environ.get("SECRET_KEY", "bridgesign_secret_key_2024")
+PORT       = int(os.environ.get("PORT", 5000))
+APP_NAME = "BridgeSign"
+APP_VERSION = "1.0.0"
+
+# Camera Settings
+CAMERA_INDEX = 0
+INFER_EVERY_N_FRAMES = 2   # Every 2nd frame (~15 detections/sec) — balances speed vs CPU
+CONSECUTIVE_THRESHOLD = 2  # Confirm after 2 matching frames for snappy detection
+JPEG_QUALITY = 70          # Lower = faster stream
+CAMERA_MAX_INDEX = 4
+FRAME_WIDTH = 640
+FRAME_HEIGHT = 480
+FPS = 30
+
+# Hand-switch grace period
+# When the hand disappears, wait this many seconds before treating it as
+# "no hand" for word-boundary purposes.  Absorbs brief tracking drops when
+# repositioning or switching hands without triggering a false word boundary.
+HAND_LOST_GRACE_SEC = 0.5  # 0.5 s feels instant but covers a hand-swap
+
+# MediaPipe Settings
+MIN_DETECTION_CONFIDENCE = 0.7    # Slightly lower: catches hand reliably in all lighting
+MIN_TRACKING_CONFIDENCE  = 0.5
+MAX_NUM_HANDS            = 1    # Single hand = half the MediaPipe work
+
+# Classifier confidence gate
+# Predictions below this value are discarded as "not sure".
+# RandomForest distributes probability across 500 trees / 26 classes so
+# max confidence is typically 0.20–0.40 even on correct predictions.
+# The consecutive-frame filter (CONSECUTIVE_THRESHOLD) provides the real
+# false-positive protection, so keep this gate low.
+MIN_PREDICTION_CONFIDENCE = 0.15
+
+# Path Constants
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODELS_DIR = os.path.join(BASE_DIR, "models")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+DATASET_DIR = os.path.join(BASE_DIR, "dataset")
+
+# Create required directories
+os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(DATASET_DIR, exist_ok=True)
+
+# TTS Settings
+TTS_RATE = 150
+TTS_VOLUME = 1.0
+
+# Colors for UI (BGR format for OpenCV)
+COLOR_PRIMARY = (255, 153, 51) # Blueish
+COLOR_SECONDARY = (51, 204, 255) # Orangeish
+COLOR_TEXT = (255, 255, 255)
+COLOR_SUCCESS = (0, 255, 0)
+COLOR_WARNING = (0, 0, 255)
