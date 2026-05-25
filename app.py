@@ -1282,8 +1282,18 @@ def translate_image():
     f.save(path)
     from image_translator import ImageTranslator
     label, conf, _ = ImageTranslator().translate(path)
+
+    # Explicit rejection when no hand is detected
+    if not label or label == "No hand detected" or conf == 0.0:
+        return jsonify({
+            "label": "",
+            "confidence": "0%",
+            "no_hand": True,
+            "error": "No hand detected. Please upload a clear photo of a hand sign."
+        })
+
     tracker.log_translation(label, conf, "image")
-    return jsonify({"label": label, "confidence": f"{conf:.0%}"})
+    return jsonify({"label": label, "confidence": f"{conf:.0%}", "no_hand": False})
 
 @app.route("/api/learn/lesson")
 @login_required

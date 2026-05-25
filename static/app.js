@@ -826,18 +826,47 @@ async function uploadImage(event) {
   };
   reader.readAsDataURL(file);
 
-  document.getElementById("imgSignDisplay").textContent = "…";
-  const fd  = new FormData();
-  fd.append("image", file);
-  const res = await fetch("/api/translate_image", { method: "POST", body: fd });
-  const d   = await res.json();
-
   const el = document.getElementById("imgSignDisplay");
+  el.textContent = "…";
+
+  // Clear any previous no-hand warning
+  let warnEl = document.getElementById("imgNoHandWarning");
+  if (!warnEl) {
+    warnEl = document.createElement("p");
+    warnEl.id = "imgNoHandWarning";
+    warnEl.style.cssText = "color:#ef4444;font-weight:600;font-size:.95rem;margin-top:10px;text-align:center;display:none;";
+    el.parentNode && el.parentNode.insertBefore(warnEl, el.nextSibling);
+  }
+  warnEl.style.display = "none";
+  warnEl.textContent = "";
+
+  const fd = new FormData();
+  fd.append("image", file);
+  let d;
+  try {
+    const res = await fetch("/api/translate_image", { method: "POST", body: fd });
+    d = await res.json();
+  } catch (err) {
+    el.textContent = "–";
+    warnEl.textContent = "⚠️ Upload failed. Please try again.";
+    warnEl.style.display = "block";
+    return;
+  }
+
+  // No hand detected — show warning, refuse to display a result
+  if (d.no_hand || d.error) {
+    el.textContent = "–";
+    setConfidence(0, "imgConfFluid", "imgConfLabel");
+    warnEl.textContent = "🚫 " + (d.error || "No hand detected. Upload a clear photo of a hand sign.");
+    warnEl.style.display = "block";
+    return;
+  }
+
   el.textContent = d.label || "–";
   el.classList.remove("bloom"); void el.offsetWidth; el.classList.add("bloom");
-  const pct = parseInt((d.confidence || "0%").replace("%","")) / 100;
+  const pct = parseInt((d.confidence || "0%").replace("%", "")) / 100;
   setConfidence(pct, "imgConfFluid", "imgConfLabel");
-  if (d.label && d.label !== "No hand detected") softChime();
+  softChime();
 }
 
 function speakImgResult() {
@@ -1032,7 +1061,6 @@ let _motion = {
   vrmLabels: [],
   libraryLoaded: false,
 };
-
 const MOTION_HOLISTIC_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5.1675471629";
 const MOTION_TRACK_INTERVAL_MS = 90;
 const MOTION_POSE_LINES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24]];

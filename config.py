@@ -35,7 +35,7 @@ MAX_NUM_HANDS            = 1    # Single hand = half the MediaPipe work
 # max confidence is typically 0.20–0.40 even on correct predictions.
 # The consecutive-frame filter (CONSECUTIVE_THRESHOLD) provides the real
 # false-positive protection, so keep this gate low.
-MIN_PREDICTION_CONFIDENCE = 0.15
+MIN_PREDICTION_CONFIDENCE = 0.25  # raised from 0.15 — fewer false positives, better live accuracy
 
 # Path Constants
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
