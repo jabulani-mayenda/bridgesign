@@ -24,14 +24,29 @@ let facingMode = "environment";
 let _recognition = null;
 let _inferInterval = null;
 let _inferInFlight = false;
+let _inferSeq = 0;
+let _lastAppliedInferSeq = 0;
 let lastSign = "";
 let lastSignTime = 0;
+let lastInterimSent = "";
+let lastInterimSentAt = 0;
+let lastAvatarSpeechText = "";
 
 let _localHands = null;
 let useClientInference = false;
+let normalizeFrontCameraLandmarks = true;
+
+const signCache = new Map();
+const avatarQueue = [];
+let avatarQueueRunning = false;
+const speechQueue = [];
+let speechQueueRunning = false;
 
 const INFER_INTERVAL_MS = 140;
+const INFER_SLOW_WARN_MS = 100;
+const INFER_HARD_TIMEOUT_MS = 900;
 const SIGN_REPEAT_MS = 1600;
+const SPEECH_PARTIAL_SEND_MS = 500;
 const ICE_SERVERS = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -66,12 +81,17 @@ function initLocalHands() {
 }
 
 // Handle results from local MediaPipe Hands
-function handleLocalHandsResults(results) {
-  _inferInFlight = false; // Release lock
-  if (!localStream || cameraOff || role !== "deaf") return;
+async function handleLocalHandsResults(results) {
+  if (!localStream || cameraOff || role !== "deaf") {
+    _inferInFlight = false;
+    return;
+  }
 
   const video = els.localVideo;
-  if (!video || !video.videoWidth) return;
+  if (!video || !video.videoWidth) {
+    _inferInFlight = false;
+    return;
+  }
 
   let landmarksList = null;
   if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
@@ -79,33 +99,63 @@ function handleLocalHandsResults(results) {
     const w = video.videoWidth;
     const h = video.videoHeight;
     
-    // Native landmark coords; server picks best of mirrored vs raw orientation.
     landmarksList = hand.map((lm, idx) => [
       idx,
-      Math.round(lm.x * w),
+      Math.round(normalizeLandmarkX(lm.x) * w),
       Math.round(lm.y * h)
     ]);
   }
 
-  if (landmarksList) {
-    sendLocalLandmarks(landmarksList);
+  try {
+    await sendLocalLandmarks(landmarksList);
+  } finally {
+    _inferInFlight = false;
   }
 }
 
 // Send local landmarks to the landmarks infer endpoint
 async function sendLocalLandmarks(landmarks) {
+  const seq = ++_inferSeq;
+  const startedAt = performance.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), INFER_HARD_TIMEOUT_MS);
   try {
     const res = await fetch("/api/infer_landmarks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ landmarks })
+      body: JSON.stringify({
+        landmarks,
+        camera_facing: facingMode,
+        mirrored: shouldMirrorFrontCameraLandmarks()
+      }),
+      signal: controller.signal
     });
+    const elapsed = performance.now() - startedAt;
+    if (elapsed > INFER_SLOW_WARN_MS) {
+      console.debug(`[Call] slow landmark request ${Math.round(elapsed)}ms`);
+    }
+    const data = await res.json().catch(() => ({}));
+    data._clientSeq = seq;
     if (res.ok) {
-      handleInferResponse(await res.json());
+      handleInferResponse(data);
     }
   } catch (err) {
-    console.error("[Call] Landmarks infer error:", err);
+    if (err?.name === "AbortError") {
+      console.warn(`[Call] Landmarks request timed out after ${INFER_HARD_TIMEOUT_MS}ms; dropping frame.`);
+    } else {
+      console.error("[Call] Landmarks infer error:", err);
+    }
+  } finally {
+    clearTimeout(timeoutId);
   }
+}
+
+function shouldMirrorFrontCameraLandmarks() {
+  return normalizeFrontCameraLandmarks && facingMode === "user";
+}
+
+function normalizeLandmarkX(x) {
+  return shouldMirrorFrontCameraLandmarks() ? 1 - x : x;
 }
 
 const els = {};
@@ -147,13 +197,19 @@ function setTranscript(text) {
   if (els.callTranscript) els.callTranscript.textContent = text || "Waiting for captions...";
 }
 
+function normalizeSpokenSign(text) {
+  const clean = String(text || "").replace(/_/g, " ").trim();
+  if (!clean) return "";
+  if (/^[A-Z]$/.test(clean)) return clean;
+  return clean;
+}
+
 // ── Web Speech API speak helper (browser TTS) ──────────────────────
-function speak(text) {
+function speakNow(text) {
   if (!text || !window.speechSynthesis) return;
   const normalized = text === text.toUpperCase()
     ? text.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
     : text;
-  window.speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(normalized);
   utt.rate = 0.95;
   utt.pitch = 1;
@@ -166,6 +222,44 @@ function speak(text) {
   window.speechSynthesis.speak(utt);
 }
 if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = () => {};
+
+function speak(text) {
+  speakSign(text);
+}
+
+function speakSign(label) {
+  const spoken = normalizeSpokenSign(label);
+  if (!spoken || !window.speechSynthesis) return;
+  console.log(`[Call] Received sign: "${label}" -> speaking "${spoken}" via TTS`);
+  speechQueue.push(spoken);
+  runSpeechQueue();
+}
+
+function runSpeechQueue() {
+  if (speechQueueRunning || !window.speechSynthesis) return;
+  const next = speechQueue.shift();
+  if (!next) return;
+
+  speechQueueRunning = true;
+  const utt = new SpeechSynthesisUtterance(next);
+  utt.rate = /^[A-Z]$/.test(next) ? 0.82 : 0.95;
+  utt.pitch = 1;
+  utt.volume = 1;
+  const voices = window.speechSynthesis.getVoices();
+  const pref = voices.find(v => v.lang.startsWith("en") && v.name.includes("Female"))
+            || voices.find(v => v.lang.startsWith("en"))
+            || voices[0];
+  if (pref) utt.voice = pref;
+  utt.onend = () => {
+    speechQueueRunning = false;
+    runSpeechQueue();
+  };
+  utt.onerror = () => {
+    speechQueueRunning = false;
+    runSpeechQueue();
+  };
+  window.speechSynthesis.speak(utt);
+}
 
 // ── Avatar helpers ─────────────────────────────────────────────────
 function initCallAvatar() {
@@ -196,30 +290,99 @@ function queueGuidanceOnAvatar(guidance) {
   });
 }
 
-async function playTextOnAvatar(text) {
+async function playTextOnAvatar(text, options = {}) {
   const cleanText = String(text || "").trim();
   if (!cleanText) return;
 
+  let phrase = cleanText;
+  if (options.partial) {
+    phrase = incrementalSpeechChunk(cleanText);
+    if (!phrase) return;
+  } else {
+    if (lastAvatarSpeechText) {
+      phrase = incrementalSpeechChunk(cleanText) || "";
+    }
+    lastAvatarSpeechText = "";
+    if (!phrase) return;
+  }
+
+  console.log(`[Call] Received speech: "${cleanText}" -> queueing signs for avatar`);
+  avatarQueue.push(phrase);
+  runAvatarQueue();
+}
+
+function incrementalSpeechChunk(text) {
+  const clean = normalizeCacheKey(text);
+  const previous = normalizeCacheKey(lastAvatarSpeechText);
+  lastAvatarSpeechText = text;
+  if (!previous) return text;
+  if (clean === previous) return "";
+  if (clean.startsWith(previous + " ")) {
+    return text.slice(previous.length).trim();
+  }
+  return text;
+}
+
+async function runAvatarQueue() {
+  if (avatarQueueRunning) return;
+  const phrase = avatarQueue.shift();
+  if (!phrase) return;
+
+  avatarQueueRunning = true;
   initCallAvatar();
   const avatar = window.callAvatar;
-  if (!avatar) return;
+  console.log(`[Call] Avatar animation started for phrase: "${phrase}"`);
+
+  if (!avatar) {
+    avatarQueueRunning = false;
+    setTimeout(runAvatarQueue, 150);
+    return;
+  }
 
   try {
-    const res = await fetch("/api/stt/text", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: cleanText })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.guidance && data.guidance.length) {
-        queueGuidanceOnAvatar(data.guidance);
-        return;
-      }
+    const guidance = await getGuidanceForText(phrase);
+    if (guidance && guidance.length) {
+      queueGuidanceOnAvatar(guidance);
+    } else if (typeof avatar.queueText === "function") {
+      avatar.queueText(phrase);
     }
-  } catch (_) {}
+  } catch (err) {
+    console.warn("[Call] Avatar guidance failed:", err);
+    if (typeof avatar.queueText === "function") avatar.queueText(phrase);
+  }
 
-  if (typeof avatar.queueText === "function") avatar.queueText(cleanText);
+  const waitMs = Math.min(6000, Math.max(900, phrase.split(/\s+/).length * 850));
+  setTimeout(() => {
+    console.log("[Call] Avatar animation complete");
+    avatarQueueRunning = false;
+    runAvatarQueue();
+  }, waitMs);
+}
+
+async function getGuidanceForText(text) {
+  const key = normalizeCacheKey(text);
+  if (signCache.has(key)) return signCache.get(key);
+
+  const startedAt = performance.now();
+  const res = await fetch("/api/stt/text", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+  const elapsed = performance.now() - startedAt;
+  if (elapsed > 100) {
+    console.debug(`[Call] /api/stt/text slow ${Math.round(elapsed)}ms for "${text}"`);
+  }
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  const guidance = Array.isArray(data.guidance) ? data.guidance : [];
+  signCache.set(key, guidance);
+  return guidance;
+}
+
+function normalizeCacheKey(text) {
+  return String(text || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 // ── Main startup ───────────────────────────────────────────────────
@@ -495,18 +658,15 @@ function setupDataChannel() {
 // FIX #2: speak received signs aloud (sign-to-speech)
 // FIX #3: play avatar for received speech (speech-to-sign)
 function handleDataMessage(data) {
-
   if (data.type === "sign") {
     const label = data.label || "";
     setCaption(label, "var(--terracotta)");
     setTranscript(`Partner signed: ${label}`);
 
-    // If WE are the hearing partner, speak the sign aloud so we hear it
     if (role === "hearing") {
-      speak(label);
+      speakSign(label);
     }
 
-    // If WE are the deaf partner receiving a sign echo, show on avatar
     if (role === "deaf") {
       const avatar = window.callAvatar;
       if (avatar && label) {
@@ -518,15 +678,15 @@ function handleDataMessage(data) {
 
   if (data.type === "speech") {
     const text = data.text || "";
+    const partial = Boolean(data.partial);
     setCaption(`"${text}"`, "var(--honey)");
     setTranscript(text);
+    console.log(`[Call] Received ${partial ? "partial " : ""}speech: "${text}" -> queueing signs for avatar`);
 
-    // If WE are the deaf partner receiving partner's speech, animate the avatar
     if (role === "deaf") {
-      playTextOnAvatar(text);
+      playTextOnAvatar(text, { partial });
     }
 
-    // If WE are the hearing partner receiving a speech echo, just show it
     return;
   }
 
@@ -534,10 +694,10 @@ function handleDataMessage(data) {
     const text = data.text || "";
     setCaption(text, "var(--sage)");
     setTranscript(text);
+    console.log(`[Call] Received text: "${text}" -> ${role === "deaf" ? "queueing avatar" : "speaking"}`);
 
-    // Typed text from deaf side → speak it on hearing side
     if (role === "hearing") {
-      speak(text);
+      speakSign(text);
     } else {
       playTextOnAvatar(text);
     }
@@ -601,6 +761,8 @@ function stopInferLoop() {
   clearInterval(_inferInterval);
   _inferInterval = null;
   _inferInFlight = false;
+  _inferSeq = 0;
+  _lastAppliedInferSeq = 0;
 }
 
 async function captureAndInfer() {
@@ -628,6 +790,7 @@ async function captureAndInfer() {
     ctx.restore();
 
     _inferInFlight = true;
+    const startedAt = performance.now();
     canvas.toBlob(async (blob) => {
       if (!blob) {
         _inferInFlight = false;
@@ -638,7 +801,13 @@ async function captureAndInfer() {
       fd.append("frame", blob, "frame.jpg");
       try {
         const res = await fetch("/api/infer_frame", { method: "POST", body: fd });
-        if (res.ok) handleInferResponse(await res.json());
+        const elapsed = performance.now() - startedAt;
+        if (elapsed > INFER_SLOW_WARN_MS) {
+          console.debug(`[Call] slow frame request ${Math.round(elapsed)}ms`);
+        }
+        const data = await res.json().catch(() => ({}));
+        data._clientSeq = ++_inferSeq;
+        if (res.ok) handleInferResponse(data);
       } catch (_) {}
       _inferInFlight = false;
     }, "image/jpeg", 0.72);
@@ -646,6 +815,13 @@ async function captureAndInfer() {
 }
 
 function handleInferResponse(data) {
+  const seq = Number(data._clientSeq || 0);
+  if (seq && seq < _lastAppliedInferSeq) {
+    console.debug(`[Call] stale inference response ignored seq=${seq}, latest=${_lastAppliedInferSeq}`);
+    return;
+  }
+  if (seq) _lastAppliedInferSeq = seq;
+
   // Prefer completed sentence > completed word > current label
   const label = data.completed_sentence || data.completed_word || data.label || "";
   if (!label || data.hand_state !== "recognised") return;
@@ -684,11 +860,27 @@ function startSpeechRecognition() {
     }
 
     if (finalTranscript) {
-      // Send speech to the deaf partner — their avatar will sign it
-      sendCaption("speech", finalTranscript.trim());
+      const cleanFinal = finalTranscript.trim();
+      lastInterimSent = "";
+      lastInterimSentAt = 0;
+      console.log(`[Call] Speech final: "${cleanFinal}" -> sending to partner`);
+      sendCaption("speech", cleanFinal, { partial: false });
     } else if (interimTranscript) {
-      setCaption(`"${interimTranscript.trim()}"`, "rgba(255,255,255,.72)");
-      setTranscript(interimTranscript.trim());
+      const cleanInterim = interimTranscript.trim();
+      setCaption(`"${cleanInterim}"`, "rgba(255,255,255,.72)");
+      setTranscript(cleanInterim);
+
+      const now = Date.now();
+      if (
+        cleanInterim
+        && cleanInterim !== lastInterimSent
+        && now - lastInterimSentAt >= SPEECH_PARTIAL_SEND_MS
+      ) {
+        lastInterimSent = cleanInterim;
+        lastInterimSentAt = now;
+        console.log(`[Call] Speech partial: "${cleanInterim}" -> sending to partner`);
+        sendData({ type: "speech", text: cleanInterim, partial: true });
+      }
     }
   };
 

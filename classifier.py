@@ -97,3 +97,26 @@ class Classifier:
         except Exception as e:
             print(f"[Classifier] Predict error: {e}")
             return "Error", 0.0
+
+    def predict_topk(self, features, k=5):
+        """Return the top-k class probabilities for debugging live inference."""
+        if features is None or len(features) == 0 or self.pipeline is None:
+            return []
+
+        try:
+            if self.n_features_in_ is not None and len(features) != self.n_features_in_:
+                return []
+
+            X = np.array([features], dtype=np.float32)
+            proba = self.pipeline.predict_proba(X)[0]
+            top_ids = np.argsort(proba)[::-1][:k]
+            return [
+                {
+                    "label": self.categories.get(int(i), "Unknown"),
+                    "confidence": float(proba[int(i)]),
+                }
+                for i in top_ids
+            ]
+        except Exception as e:
+            print(f"[Classifier] Top-k predict error: {e}")
+            return []

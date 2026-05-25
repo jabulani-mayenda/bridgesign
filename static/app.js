@@ -65,12 +65,17 @@ let signCount      = 0;
 let _videoStream   = null;
 let _inferInterval = null;
 let _inferInFlight = false;
+let _inferSeq      = 0;
+let _lastAppliedInferSeq = 0;
 let _permissionRetry = null;
 const INFER_INTERVAL_MS = 100; // 10 fps
+const INFER_SLOW_WARN_MS = 100;
+const INFER_HARD_TIMEOUT_MS = 900;
 
 let facingMode     = "user"; // "user" or "environment"
 let _localHands    = null;
 let useClientInference = false;
+let normalizeFrontCameraLandmarks = true;
 
 // ── Initialize MediaPipe Hands locally if available ──
 function initLocalHands() {
@@ -102,12 +107,14 @@ function initLocalHands() {
 }
 
 // Handle results from client-side MediaPipe Hands
-function handleLocalHandsResults(results) {
-  _inferInFlight = false; // Release infer lock
+async function handleLocalHandsResults(results) {
   if (!cameraRunning) return;
 
   const video = document.getElementById("videoFeed");
-  if (!video || !video.videoWidth) return;
+  if (!video || !video.videoWidth) {
+    _inferInFlight = false;
+    return;
+  }
 
   let landmarksList = null;
   if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
@@ -115,36 +122,68 @@ function handleLocalHandsResults(results) {
     const w = video.videoWidth;
     const h = video.videoHeight;
     
-    // Pixel landmarks for the server; dual-orientation inference on the server
-    // picks mirrored vs raw, so send native MediaPipe coordinates here.
     landmarksList = hand.map((lm, idx) => [
       idx,
-      Math.round(lm.x * w),
+      Math.round(normalizeLandmarkX(lm.x) * w),
       Math.round(lm.y * h)
     ]);
   }
 
-  // POST landmarks list to /api/infer_landmarks
-  sendLocalLandmarks(landmarksList);
+  try {
+    await sendLocalLandmarks(landmarksList);
+  } finally {
+    _inferInFlight = false;
+  }
 }
 
 // Send pre-extracted landmarks to the server
 async function sendLocalLandmarks(landmarks) {
+  const seq = ++_inferSeq;
+  const startedAt = performance.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), INFER_HARD_TIMEOUT_MS);
   try {
     const res = await fetch("/api/infer_landmarks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ landmarks })
+      body: JSON.stringify({
+        landmarks,
+        camera_facing: facingMode,
+        mirrored: shouldMirrorFrontCameraLandmarks()
+      }),
+      signal: controller.signal
     });
+    const elapsed = performance.now() - startedAt;
+    if (elapsed > INFER_SLOW_WARN_MS) {
+      console.debug(`[Infer] slow landmark request ${Math.round(elapsed)}ms`);
+    }
+    const data = await res.json().catch(() => ({}));
+    data._clientSeq = seq;
     if (res.ok) {
-      handleInferResponse(await res.json());
+      handleInferResponse(data);
     } else {
-      const errData = await res.json().catch(() => ({}));
-      console.error(`[Infer] Landmarks server error:`, errData.error);
+      console.error(`[Infer] Landmarks server error:`, data.error || res.status, data.inference_error || "");
+      if (data.inference_error || data.error === "Inference not ready") {
+        showToast("Sign model not loaded on server — check Render logs / redeploy.");
+      }
     }
   } catch (err) {
-    console.error("[Infer] Landmarks network error:", err);
+    if (err?.name === "AbortError") {
+      console.warn(`[Infer] Landmarks request timed out after ${INFER_HARD_TIMEOUT_MS}ms; dropping frame.`);
+    } else {
+      console.error("[Infer] Landmarks network error:", err);
+    }
+  } finally {
+    clearTimeout(timeoutId);
   }
+}
+
+function shouldMirrorFrontCameraLandmarks() {
+  return normalizeFrontCameraLandmarks && facingMode === "user";
+}
+
+function normalizeLandmarkX(x) {
+  return shouldMirrorFrontCameraLandmarks() ? 1 - x : x;
 }
 
 // ── Flip Camera (Dynamic facingMode switch) ──
@@ -372,6 +411,8 @@ function stopInferLoop() {
   clearInterval(_inferInterval);
   _inferInterval = null;
   _inferInFlight = false;
+  _inferSeq = 0;
+  _lastAppliedInferSeq = 0;
 }
 
 async function captureAndInfer() {
@@ -397,20 +438,29 @@ async function captureAndInfer() {
     ctx.drawImage(video, 0, 0);
 
     _inferInFlight = true;
+    const startedAt = performance.now();
     canvas.toBlob(async (blob) => {
       if (!blob) { _inferInFlight = false; return; }
+      const seq = ++_inferSeq;
       const fd = new FormData();
       fd.append("frame", blob, "frame.jpg");
       try {
         const res = await fetch("/api/infer_frame", { method: "POST", body: fd });
+        const elapsed = performance.now() - startedAt;
+        if (elapsed > INFER_SLOW_WARN_MS) {
+          console.debug(`[Infer] slow frame request ${Math.round(elapsed)}ms`);
+        }
+        const data = await res.json().catch(() => ({}));
+        data._clientSeq = seq;
         if (res.ok) {
-          handleInferResponse(await res.json());
+          handleInferResponse(data);
         } else {
-          const errData = await res.json().catch(() => ({}));
-          console.error(`[Infer] Server error ${res.status}:`, errData.error || res.statusText);
+          console.error(`[Infer] Server error ${res.status}:`, data.error || res.statusText, data.inference_error || "");
           if (res.status === 401) {
             showToast("Session expired — please log in again.");
             stopInferLoop();
+          } else if (data.inference_error || data.error === "Inference not ready") {
+            showToast("Sign model not loaded on server — check Render logs / redeploy.");
           }
         }
       } catch (err) {
@@ -422,19 +472,28 @@ async function captureAndInfer() {
 }
 
 function handleInferResponse(d) {
+  const seq = Number(d._clientSeq || 0);
+  if (seq && seq < _lastAppliedInferSeq) {
+    console.debug(`[Infer] stale response ignored seq=${seq}, latest=${_lastAppliedInferSeq}`);
+    return;
+  }
+  if (seq) _lastAppliedInferSeq = seq;
+
   const handState = d.hand_state || "no_hand";
   updateLiveTracking(d);
 
   // ── Debug console output (always on — helps diagnose recognition issues) ──
-  if (handState !== "no_hand") {
-    console.debug(
-      `[Infer] state=${handState} | static=${d.static_label}(${(d.static_confidence*100).toFixed(0)}%) ` +
-      `| gesture=${d.gesture_label}(${(d.gesture_confidence*100).toFixed(0)}%) ` +
-      `| confirmed=${d.label}(${(d.confidence*100).toFixed(0)}%) | consec=${d.consecutive ?? "?"}`
-    );
-  }
+  logInferDecision(d);
 
-  if (handState !== "recognised") {
+  if (handState === "no_hand") {
+    lastLabel = "";
+    clearActiveSignDisplay();
+  } else if (handState === "pending") {
+    if (d.pending_label && d.pending_label !== lastLabel) {
+      lastLabel = "";
+      showPendingSign(d.pending_label, d.pending_confidence || 0);
+    }
+  } else if (handState === "low_confidence" || handState === "detecting") {
     lastLabel = "";
     clearActiveSignDisplay();
   }
@@ -496,6 +555,41 @@ function handleInferResponse(d) {
 
   if (d.confidence > 0 && handState === "recognised") {
     setConfidence(d.confidence, "confidenceFluid", "confidenceLabel");
+  }
+}
+
+function logInferDecision(d) {
+  const handState = d.hand_state || "no_hand";
+  const pred = d.pending_label || d.static_label || "";
+  const conf = d.pending_confidence || d.static_confidence || 0;
+  const consecutive = d.consecutive ?? 0;
+  const threshold = d.consecutive_threshold ?? 2;
+  const decision = d.debug_decision || (handState === "recognised" ? `CONFIRMED ${d.label}` : "waiting");
+  const top = Array.isArray(d.static_top)
+    ? d.static_top.map(x => `${x.label}:${Math.round((x.confidence || 0) * 100)}%`).join(", ")
+    : "";
+  const changed = d.label && lastLabel && d.label !== lastLabel
+    ? `, different from confirmed(${lastLabel}) -> reset counter`
+    : "";
+  console.debug(
+    `[Infer] frame: pred=${pred || "-"} (conf=${conf.toFixed(2)}), ` +
+    `consecutive_same=${consecutive}, threshold=${threshold} -> ${decision}${changed}` +
+    (handState === "no_hand" ? " | no hand -> cleared" : "") +
+    (top ? ` | top=[${top}]` : "")
+  );
+}
+
+function showPendingSign(label, conf) {
+  const el = document.getElementById("signDisplay");
+  const msg = document.getElementById("signStateMsg");
+  if (el) {
+    el.textContent = label;
+    el.dataset.state = "low_confidence";
+  }
+  setConfidence(conf, "confidenceFluid", "confidenceLabel");
+  if (msg) {
+    msg.textContent = "Confirming...";
+    msg.className = "sign-state-msg unclear";
   }
 }
 
@@ -601,13 +695,23 @@ function updateHandState(handState, d) {
       msg.textContent = "🟡 Sign unclear — hold still and try again";
     }
     msg.className = "sign-state-msg unclear";
+  } else if (handState === "detecting") {
+    signEl.dataset.state = "low_confidence";
+    signEl.textContent = "–";
+    msg.textContent = "Detecting...";
+    msg.className = "sign-state-msg unclear";
+  } else if (handState === "pending") {
+    signEl.dataset.state = "low_confidence";
+    const pending = d?.pending_label || d?.static_label || "";
+    const conf = Math.round(((d?.pending_confidence || d?.static_confidence || 0) * 100));
+    msg.textContent = pending ? `Confirming ${pending} (${conf}%)...` : "Confirming...";
+    msg.className = "sign-state-msg unclear";
   } else if (handState === "no_hand") {
     if (cameraRunning) {
       signEl.dataset.state = "no_hand";
-      if (signEl.textContent === "–" || signEl.textContent === "") {
-        msg.textContent = "Show your hand to the camera";
-        msg.className = "sign-state-msg no-hand";
-      }
+      signEl.textContent = "–";
+      msg.textContent = "Show your hand to the camera";
+      msg.className = "sign-state-msg no-hand";
     }
   }
   // Recognised: message cleared by updateSign()

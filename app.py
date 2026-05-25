@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 import string
+import sys
 import traceback
 import numpy as np
 from flask import Flask, render_template, Response, jsonify, request, session, redirect, url_for
@@ -186,6 +187,30 @@ def _load_inference_modules():
             # Do not crash the gunicorn worker — keep /health and the UI alive.
 
 
+def _inference_not_ready_response(s):
+    """Return JSON when ML modules failed to load (common on OOM / bad deploy)."""
+    return jsonify({
+        "hand_state": "no_hand",
+        "label": "",
+        "confidence": 0.0,
+        "error": "Inference not ready",
+        "inference_error": _inference_status.get("error") or "Model failed to load",
+        "inference_ready": False,
+        "mode": s.get("mode", "letter"),
+        "word_buffer": "",
+        "last_word": "",
+        "sentence": "",
+        "completed_sentence": "",
+        "completed_word": "",
+        "frame_count": s.get("frame_count", 0),
+        "tracked_count": s.get("tracked_count", 0),
+        "consecutive": 0,
+        "landmark_count": 0,
+        "tracking_parts": [],
+        "hand_bbox": None,
+    }), 503
+
+
 def _warm_inference_modules():
     try:
         _load_inference_modules()
@@ -204,6 +229,29 @@ def health():
         "data_dir_exists": os.path.isdir(config.DATA_DIR),
         "data_dir_writable": os.access(config.DATA_DIR, os.W_OK),
     }), 200
+
+
+@app.route("/ready")
+def ready():
+    _load_inference_modules()
+    model_loaded = bool(_classifier and getattr(_classifier, "pipeline", None))
+    extractor_loaded = _extractor is not None
+    detector_loaded = _detector is not None
+    ready_state = bool(_inference_status["ready"] and model_loaded and extractor_loaded)
+    return jsonify({
+        "status": "ready" if ready_state else "not_ready",
+        "inference_ready": ready_state,
+        "inference_loading": bool(_inference_status["loading"]),
+        "inference_error": _inference_status["error"],
+        "model_loaded": model_loaded,
+        "detector_loaded": detector_loaded,
+        "extractor_loaded": extractor_loaded,
+        "model_features": getattr(_classifier, "n_features_in_", None) if _classifier else None,
+        "classes": list(getattr(_classifier, "categories", {}).values()) if _classifier else [],
+        "python_version": sys.version.split()[0],
+        "data_dir": config.DATA_DIR,
+        "data_dir_writable": os.access(config.DATA_DIR, os.W_OK),
+    }), (200 if ready_state else 503)
 
 
 @app.route("/test-api", methods=["GET", "POST"])
@@ -280,6 +328,7 @@ def _get_inference_session(username):
                 "consecutive":            0,
                 "last_emitted_key":       "",
                 "last_hand_ts":           0.0,
+                "low_confidence_since":   0.0,
                 "gesture_cooldown_until": 0.0,
                 "prev_features":           None,
                 "last_gesture_frame":      -999,
@@ -303,6 +352,7 @@ def _reset_inference_session(username):
             s["consecutive"]            = 0
             s["last_emitted_key"]       = ""
             s["last_hand_ts"]           = 0.0
+            s["low_confidence_since"]   = 0.0
             s["gesture_cooldown_until"] = 0.0
             s["prev_features"]          = None
             s["last_gesture_frame"]      = -999
@@ -327,9 +377,10 @@ def _predict_static_sign(features):
     Training data mixes flipped webcam captures and unflipped photos; phones
     also switch front (mirrored) vs back (unmirrored) cameras at runtime.
     """
+    from feature_extractor import FeatureExtractor
+
     label, conf = _classifier.predict(features)
-    flipped = _extractor.flip_x(features)
-    flip_label, flip_conf = _classifier.predict(flipped)
+    flip_label, flip_conf = _classifier.predict(FeatureExtractor.flip_x(features))
     if flip_conf > conf:
         label, conf = flip_label, flip_conf
     if conf < config.MIN_PREDICTION_CONFIDENCE or label in ("", "Unknown", "Error"):
@@ -338,6 +389,83 @@ def _predict_static_sign(features):
     if label in GESTURE_ONLY_LABELS and _gesture_classifier.is_available():
         return "", 0.0
     return label, conf
+
+
+def _predict_static_topk(features, k=5):
+    """Expose raw classifier probabilities so threshold issues are visible."""
+    if not _classifier or not getattr(_classifier, "pipeline", None):
+        return []
+    return _classifier.predict_topk(features, k=k)
+
+
+def _clear_live_prediction_state(s):
+    """Flush candidate/confirmed state when the hand disappears."""
+    s["consecutive"] = 0
+    s["prev_result_key"] = ""
+    s["last_emitted_key"] = ""
+    s["prev_features"] = None
+    s["low_confidence_since"] = 0.0
+    if "gesture_ext" in s:
+        s["gesture_ext"].clear()
+
+
+def _update_live_confirmation(s, label_raw, conf, source, now):
+    """Advance the per-frame candidate counter and return response metadata."""
+    threshold = int(config.CONSECUTIVE_THRESHOLD)
+    result_key = f"{source}:{label_raw}" if label_raw else ""
+    previous_key = s.get("prev_result_key", "")
+    previous_confirmed = s.get("last_emitted_key", "")
+    different_from_confirmed = bool(
+        result_key and previous_confirmed and result_key != previous_confirmed
+    )
+
+    if not result_key:
+        s["consecutive"] = 0
+        s["prev_result_key"] = ""
+        s["low_confidence_since"] = s.get("low_confidence_since") or now
+        low_for_ms = int((now - s["low_confidence_since"]) * 1000)
+        return {
+            "hand_state": "detecting" if low_for_ms >= 1000 else "low_confidence",
+            "confirmed_label": "",
+            "confirmed_conf": 0.0,
+            "confirmed_source": "",
+            "confirmed_unit": "",
+            "pending_label": "",
+            "pending_conf": 0.0,
+            "consecutive": 0,
+            "previous_key": previous_key,
+            "different_from_confirmed": False,
+            "low_confidence_ms": low_for_ms,
+            "debug_decision": "detecting" if low_for_ms >= 1000 else "low_confidence",
+            "threshold": threshold,
+        }
+
+    s["low_confidence_since"] = 0.0
+    if result_key == previous_key:
+        s["consecutive"] += 1
+    else:
+        s["consecutive"] = 1
+        s["prev_result_key"] = result_key
+
+    confirmed = s["consecutive"] >= threshold
+    if confirmed:
+        s["last_emitted_key"] = result_key
+
+    return {
+        "hand_state": "recognised" if confirmed else "pending",
+        "confirmed_label": _display_label(label_raw) if confirmed else "",
+        "confirmed_conf": conf if confirmed else 0.0,
+        "confirmed_source": source if confirmed else "",
+        "confirmed_unit": _label_unit(label_raw) if confirmed else "",
+        "pending_label": _display_label(label_raw),
+        "pending_conf": conf,
+        "consecutive": s["consecutive"],
+        "previous_key": previous_key,
+        "different_from_confirmed": different_from_confirmed,
+        "low_confidence_ms": 0,
+        "debug_decision": f"CONFIRMED {_display_label(label_raw)}" if confirmed else "waiting",
+        "threshold": threshold,
+    }
 
 
 def _count_direction_changes(values, min_step=0.015):
@@ -719,6 +847,7 @@ def infer_frame():
     empty_response = {
         "hand_state": "no_hand", "label": "", "confidence": 0.0,
         "result_source": "", "result_unit": "",
+        "pending_label": "", "pending_confidence": 0.0,
         "static_label": "", "static_confidence": 0.0,
         "gesture_label": "", "gesture_confidence": 0.0,
         "motion_magnitude": 0.0, "frame_motion": 0.0,
@@ -727,6 +856,9 @@ def infer_frame():
         "frame_count": s.get("frame_count", 0),
         "tracked_count": s.get("tracked_count", 0),
         "consecutive": s.get("consecutive", 0),
+        "consecutive_threshold": config.CONSECUTIVE_THRESHOLD,
+        "low_confidence_ms": 0,
+        "debug_decision": "no_hand",
         "landmark_count": 0,
         "tracking_parts": [],
         "hand_bbox": None,
@@ -734,13 +866,9 @@ def infer_frame():
     if frame is None:
         return jsonify(empty_response)
 
-    try:
-        _load_inference_modules()
-    except Exception as e:
-        return jsonify({
-            "error": "Inference modules failed to load",
-            "detail": str(e),
-        }), 503
+    _load_inference_modules()
+    if not _inference_status.get("ready"):
+        return _inference_not_ready_response(s)
 
     now = time.time()
     hand_state          = "no_hand"
@@ -748,8 +876,13 @@ def infer_frame():
     confirmed_conf      = 0.0
     confirmed_source    = ""
     confirmed_unit      = ""
+    pending_label       = ""
+    pending_conf        = 0.0
+    low_confidence_ms   = 0
+    debug_decision      = "no_hand"
     static_label        = ""
     static_conf         = 0.0
+    static_top          = []
     gesture_label       = ""
     gesture_conf        = 0.0
     motion_magnitude    = 0.0
@@ -804,67 +937,60 @@ def infer_frame():
                 )
                 if active_motion:
                     tracking_parts = ["hand", "motion"]
+                static_top = _predict_static_topk(features)
                 static_label, static_conf = _predict_static_sign(features)
-                # Only suppress static sign during motion if the static
-                # prediction is weak.  A confident static sign (≥ STATIC_LOCK_CONFIDENCE)
-                # is NEVER overridden by gesture — this prevents A→GOODBYE, B→SORRY.
-                if (
-                    active_motion
-                    and _gesture_classifier.is_available()
-                    and _label_unit(static_label) == "letter"
-                    and static_conf < STATIC_LOCK_CONFIDENCE
-                ):
-                    static_label, static_conf = "", 0.0
-
-                if now > s["gesture_cooldown_until"]:
-                    gesture_label, gesture_conf = _predict_gesture_candidate(s, motion_magnitude)
-
-                label_raw, conf, source = _select_live_output(
-                    static_label,
-                    static_conf,
-                    gesture_label,
-                    gesture_conf,
-                )
-
-                if not label_raw:
-                    s["consecutive"]     = 0
-                    s["prev_result_key"] = ""
-                    hand_state = "low_confidence"
+                letter_mode = s.get("mode", "letter") == "letter"
+                if letter_mode:
+                    # Letter mode: alphabet only — never let word gestures block A–Z.
+                    gesture_label, gesture_conf = "", 0.0
+                    label_raw, conf, source = (
+                        (static_label, static_conf, "handsign")
+                        if static_label
+                        else ("", 0.0, "")
+                    )
                 else:
-                    hand_state = "recognised"
-                    result_key = f"{source}:{label_raw}"
-                    if result_key == s["prev_result_key"]:
-                        s["consecutive"] += 1
-                    else:
-                        s["consecutive"]     = 1
-                        s["prev_result_key"] = result_key
+                    if (
+                        active_motion
+                        and _gesture_classifier.is_available()
+                        and _label_unit(static_label) == "letter"
+                        and static_conf < STATIC_LOCK_CONFIDENCE
+                    ):
+                        static_label, static_conf = "", 0.0
+                    if now > s["gesture_cooldown_until"]:
+                        gesture_label, gesture_conf = _predict_gesture_candidate(s, motion_magnitude)
+                    label_raw, conf, source = _select_live_output(
+                        static_label,
+                        static_conf,
+                        gesture_label,
+                        gesture_conf,
+                    )
 
-                    if s["consecutive"] >= config.CONSECUTIVE_THRESHOLD:
-                        confirmed_label  = _display_label(label_raw)
-                        confirmed_conf   = conf
-                        confirmed_source = source
-                        confirmed_unit   = _label_unit(label_raw)
+                decision = _update_live_confirmation(s, label_raw, conf, source, now)
+                hand_state = decision["hand_state"]
+                confirmed_label = decision["confirmed_label"]
+                confirmed_conf = decision["confirmed_conf"]
+                confirmed_source = decision["confirmed_source"]
+                confirmed_unit = decision["confirmed_unit"]
+                pending_label = decision["pending_label"]
+                pending_conf = decision["pending_conf"]
+                low_confidence_ms = decision["low_confidence_ms"]
+                debug_decision = decision["debug_decision"]
 
-                        if result_key != s["last_emitted_key"]:
-                            s["last_emitted_key"] = result_key
-                            tracker.log_translation(
-                                confirmed_label,
-                                conf,
-                                f"camera_{source}",
-                            )
-                            if source == "gesture":
-                                s["gesture_cooldown_until"] = now + GESTURE_COOLDOWN_SEC
-                            if s["mode"] == "word":
-                                if confirmed_unit == "letter":
-                                    s["assembler"].push_letter(label_raw)
-                                else:
-                                    s["assembler"].push_word(label_raw)
+                if confirmed_label and decision["consecutive"] == config.CONSECUTIVE_THRESHOLD:
+                    tracker.log_translation(
+                        confirmed_label,
+                        conf,
+                        f"camera_{source}",
+                    )
+                    if source == "gesture":
+                        s["gesture_cooldown_until"] = now + GESTURE_COOLDOWN_SEC
+                    if s["mode"] == "word":
+                        if confirmed_unit == "letter":
+                            s["assembler"].push_letter(label_raw)
+                        else:
+                            s["assembler"].push_word(label_raw)
     else:
-        s["consecutive"]      = 0
-        s["prev_result_key"]  = ""
-        s["last_emitted_key"] = ""
-        s["prev_features"]    = None
-        s["gesture_ext"].clear()
+        _clear_live_prediction_state(s)
 
     # ── Word assembler tick ───────────────────────────────────────
     grace_present = hand_detected or (now - s["last_hand_ts"]) < config.HAND_LOST_GRACE_SEC
@@ -886,8 +1012,11 @@ def infer_frame():
         "confidence":         confirmed_conf,
         "result_source":      confirmed_source,
         "result_unit":        confirmed_unit,
+        "pending_label":      pending_label,
+        "pending_confidence": pending_conf,
         "static_label":       _display_label(static_label),
         "static_confidence":  static_conf,
+        "static_top":         static_top,
         "gesture_label":      _display_label(gesture_label),
         "gesture_confidence": gesture_conf,
         "motion_magnitude":   motion_magnitude,
@@ -901,6 +1030,9 @@ def infer_frame():
         "frame_count":        s.get("frame_count", 0),
         "tracked_count":      s.get("tracked_count", 0),
         "consecutive":        s.get("consecutive", 0),
+        "consecutive_threshold": config.CONSECUTIVE_THRESHOLD,
+        "low_confidence_ms":  low_confidence_ms,
+        "debug_decision":     debug_decision,
         "landmark_count":     landmark_count,
         "tracking_parts":     tracking_parts,
         "hand_bbox":          hand_bbox,
@@ -943,11 +1075,9 @@ def infer_landmarks():
     }
 
     if not lm_list or len(lm_list) < 21:
-        s["consecutive"]      = 0
-        s["prev_result_key"]  = ""
-        s["last_emitted_key"] = ""
-        s["prev_features"]    = None
-        s["gesture_ext"].clear()
+        _clear_live_prediction_state(s)
+        empty_response["consecutive"] = 0
+        empty_response["tracked_count"] = s.get("tracked_count", 0)
 
         # Word assembler tick
         now = time.time()
@@ -961,13 +1091,9 @@ def infer_landmarks():
         empty_response["completed_word"] = (asm["completed_word"] or "") if s["mode"] == "word" else ""
         return jsonify(empty_response)
 
-    try:
-        _load_inference_modules()
-    except Exception as e:
-        return jsonify({
-            "error": "Inference modules failed to load",
-            "detail": str(e),
-        }), 503
+    _load_inference_modules()
+    if not _inference_status.get("ready"):
+        return _inference_not_ready_response(s)
 
     now = time.time()
     s["last_hand_ts"] = now
@@ -990,8 +1116,13 @@ def infer_landmarks():
     confirmed_conf   = 0.0
     confirmed_source = ""
     confirmed_unit   = ""
+    pending_label    = ""
+    pending_conf     = 0.0
+    low_confidence_ms = 0
+    debug_decision   = "no_hand"
     static_label     = ""
     static_conf      = 0.0
+    static_top       = []
     gesture_label    = ""
     gesture_conf     = 0.0
     motion_magnitude = 0.0
@@ -1011,58 +1142,57 @@ def infer_landmarks():
         )
         if active_motion:
             tracking_parts = ["hand", "motion"]
+        static_top = _predict_static_topk(features)
         static_label, static_conf = _predict_static_sign(features)
-        if (
-            active_motion
-            and _gesture_classifier.is_available()
-            and _label_unit(static_label) == "letter"
-            and static_conf < STATIC_LOCK_CONFIDENCE
-        ):
-            static_label, static_conf = "", 0.0
-
-        if now > s["gesture_cooldown_until"]:
-            gesture_label, gesture_conf = _predict_gesture_candidate(s, motion_magnitude)
-
-        label_raw, conf, source = _select_live_output(
-            static_label,
-            static_conf,
-            gesture_label,
-            gesture_conf,
-        )
-
-        if not label_raw:
-            s["consecutive"]     = 0
-            s["prev_result_key"] = ""
-            hand_state = "low_confidence"
+        letter_mode = s.get("mode", "letter") == "letter"
+        if letter_mode:
+            gesture_label, gesture_conf = "", 0.0
+            label_raw, conf, source = (
+                (static_label, static_conf, "handsign")
+                if static_label
+                else ("", 0.0, "")
+            )
         else:
-            hand_state = "recognised"
-            result_key = f"{source}:{label_raw}"
-            if result_key == s["prev_result_key"]:
-                s["consecutive"] += 1
-            else:
-                s["consecutive"]     = 1
-                s["prev_result_key"] = result_key
+            if (
+                active_motion
+                and _gesture_classifier.is_available()
+                and _label_unit(static_label) == "letter"
+                and static_conf < STATIC_LOCK_CONFIDENCE
+            ):
+                static_label, static_conf = "", 0.0
+            if now > s["gesture_cooldown_until"]:
+                gesture_label, gesture_conf = _predict_gesture_candidate(s, motion_magnitude)
+            label_raw, conf, source = _select_live_output(
+                static_label,
+                static_conf,
+                gesture_label,
+                gesture_conf,
+            )
 
-            if s["consecutive"] >= config.CONSECUTIVE_THRESHOLD:
-                confirmed_label  = _display_label(label_raw)
-                confirmed_conf   = conf
-                confirmed_source = source
-                confirmed_unit   = _label_unit(label_raw)
+        decision = _update_live_confirmation(s, label_raw, conf, source, now)
+        hand_state = decision["hand_state"]
+        confirmed_label = decision["confirmed_label"]
+        confirmed_conf = decision["confirmed_conf"]
+        confirmed_source = decision["confirmed_source"]
+        confirmed_unit = decision["confirmed_unit"]
+        pending_label = decision["pending_label"]
+        pending_conf = decision["pending_conf"]
+        low_confidence_ms = decision["low_confidence_ms"]
+        debug_decision = decision["debug_decision"]
 
-                if result_key != s["last_emitted_key"]:
-                    s["last_emitted_key"] = result_key
-                    tracker.log_translation(
-                        confirmed_label,
-                        conf,
-                        f"camera_{source}",
-                    )
-                    if source == "gesture":
-                        s["gesture_cooldown_until"] = now + GESTURE_COOLDOWN_SEC
-                    if s["mode"] == "word":
-                        if confirmed_unit == "letter":
-                            s["assembler"].push_letter(label_raw)
-                        else:
-                            s["assembler"].push_word(label_raw)
+        if confirmed_label and decision["consecutive"] == config.CONSECUTIVE_THRESHOLD:
+            tracker.log_translation(
+                confirmed_label,
+                conf,
+                f"camera_{source}",
+            )
+            if source == "gesture":
+                s["gesture_cooldown_until"] = now + GESTURE_COOLDOWN_SEC
+            if s["mode"] == "word":
+                if confirmed_unit == "letter":
+                    s["assembler"].push_letter(label_raw)
+                else:
+                    s["assembler"].push_word(label_raw)
 
     # ── Word assembler tick ───────────────────────────────────────
     asm = s["assembler"].tick(hand_present=True)
@@ -1073,8 +1203,11 @@ def infer_landmarks():
         "confidence":         confirmed_conf,
         "result_source":      confirmed_source,
         "result_unit":        confirmed_unit,
+        "pending_label":      pending_label,
+        "pending_confidence": pending_conf,
         "static_label":       _display_label(static_label),
         "static_confidence":  static_conf,
+        "static_top":         static_top,
         "gesture_label":      _display_label(gesture_label),
         "gesture_confidence": gesture_conf,
         "motion_magnitude":   motion_magnitude,
@@ -1088,6 +1221,9 @@ def infer_landmarks():
         "frame_count":        s.get("frame_count", 0),
         "tracked_count":      s.get("tracked_count", 0),
         "consecutive":        s.get("consecutive", 0),
+        "consecutive_threshold": config.CONSECUTIVE_THRESHOLD,
+        "low_confidence_ms":  low_confidence_ms,
+        "debug_decision":     debug_decision,
         "landmark_count":     landmark_count,
         "tracking_parts":     tracking_parts,
         "hand_bbox":          hand_bbox,
