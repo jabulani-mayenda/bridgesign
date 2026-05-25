@@ -3,7 +3,8 @@ FROM python:3.14-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PORT=10000
+    PORT=10000 \
+    HOSTNAME=0.0.0.0
 
 WORKDIR /app
 
@@ -33,4 +34,4 @@ USER appuser
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "gunicorn app:app --worker-class gthread --workers 1 --threads ${GUNICORN_THREADS:-8} --bind 0.0.0.0:${PORT:-10000} --timeout ${GUNICORN_TIMEOUT:-120}"]
+CMD ["sh", "-c", "exec gunicorn app:app --worker-class gthread --workers 1 --threads ${GUNICORN_THREADS:-8} --bind 0.0.0.0:${PORT:-10000} --timeout ${GUNICORN_TIMEOUT:-120}"]

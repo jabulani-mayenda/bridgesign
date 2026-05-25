@@ -7,6 +7,10 @@ services:
     envVars:
       - key: SECRET_KEY
         generateValue: true
+      - key: PORT
+        value: "10000"
+      - key: HOSTNAME
+        value: 0.0.0.0
       - key: BRIDGESIGN_HOST
         value: 0.0.0.0
       - key: BRIDGESIGN_WARM_INFERENCE
