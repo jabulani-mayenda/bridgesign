@@ -38,9 +38,9 @@ sock = Sock(app)
 ROOM_ID_RE = re.compile(r"^[A-Za-z0-9_-]{3,40}$")
 
 # ── Gesture thresholds (tightened to fix confusion between signs and gestures) ──
-GESTURE_MOTION_THRESHOLD = 10.0          # was 8.0  – require more movement before gesture even runs
-GESTURE_STATIC_SUPPRESS_THRESHOLD = 9.0  # was 6.0  – suppress static sign only with clear motion
-GESTURE_FRAME_MOTION_THRESHOLD = 1.0     # was 0.75 – higher per-frame delta required
+GESTURE_MOTION_THRESHOLD = 18.0          # raised from 10.0 — requires intentional movement, ignoring camera/sensor noise
+GESTURE_STATIC_SUPPRESS_THRESHOLD = 16.0  # raised from 9.0  — suppress static sign only with clear, active hand movement
+GESTURE_FRAME_MOTION_THRESHOLD = 3.5     # raised from 1.0  — filters out minor pixel jitters and background object shifts
 GESTURE_INFERENCE_EVERY_N = 2
 GESTURE_MIN_CONFIDENCE   = 0.62          # was 0.45 – gesture must be more certain
 GESTURE_MARGIN           = 3.0           # was 2.5  – gesture needs a wider lead over static
