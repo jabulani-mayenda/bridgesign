@@ -37,17 +37,26 @@ sock = Sock(app)
 
 ROOM_ID_RE = re.compile(r"^[A-Za-z0-9_-]{3,40}$")
 
-# ── Gesture thresholds (tightened to fix confusion between signs and gestures) ──
-GESTURE_MOTION_THRESHOLD = 18.0          # raised from 10.0 — requires intentional movement, ignoring camera/sensor noise
-GESTURE_STATIC_SUPPRESS_THRESHOLD = 16.0  # raised from 9.0  — suppress static sign only with clear, active hand movement
-GESTURE_FRAME_MOTION_THRESHOLD = 3.5     # raised from 1.0  — filters out minor pixel jitters and background object shifts
+# ── Gesture thresholds (tightened v2 — fix A→GOODBYE / B→SORRY confusion) ──
+# These values are set conservatively to prevent gestures from overriding
+# static alphabet signs.  J/Z still work but need deliberate movement.
+GESTURE_MOTION_THRESHOLD = 30.0          # raised from 18.0 — requires strong intentional movement
+GESTURE_STATIC_SUPPRESS_THRESHOLD = 28.0  # raised from 16.0 — only very obvious motion suppresses static
+GESTURE_FRAME_MOTION_THRESHOLD = 6.0     # raised from 3.5  — filters out tremor/camera shake
 GESTURE_INFERENCE_EVERY_N = 2
-GESTURE_MIN_CONFIDENCE   = 0.62          # was 0.45 – gesture must be more certain
-GESTURE_MARGIN           = 3.0           # was 2.5  – gesture needs a wider lead over static
-GESTURE_LSTM_MIN_CONF    = 0.65          # was 0.50 – LSTM gesture model must be confident
-GESTURE_DECISION_MARGIN  = 0.12          # was 0.05 – bigger lead needed to beat static sign
-GESTURE_COOLDOWN_SEC     = 1.8           # was 1.2  – longer pause between gesture emissions
+GESTURE_MIN_CONFIDENCE   = 0.75          # raised from 0.62 — gesture must be very confident
+GESTURE_MARGIN           = 4.0           # raised from 3.0  — gesture needs a much wider lead
+GESTURE_LSTM_MIN_CONF    = 0.78          # raised from 0.65 — LSTM gesture model must be confident
+GESTURE_DECISION_MARGIN  = 0.20          # raised from 0.12 — bigger gap needed to beat static sign
+GESTURE_COOLDOWN_SEC     = 2.0           # raised from 1.8  — longer pause between gesture emissions
 GESTURE_ONLY_LABELS      = {"J", "Z"}
+
+# Minimum confidence for a static sign to be "locked" (protected from gesture override)
+STATIC_LOCK_CONFIDENCE   = 0.70          # if static sign ≥ this, never let gesture override it
+
+# Hand plausibility: reject hallucinated detections on non-hand objects
+MIN_HAND_BBOX_AREA_RATIO = 0.004        # hand bbox must be ≥ 0.4% of frame area
+MAX_HAND_BBOX_ASPECT     = 4.0          # bbox aspect ratio can't exceed 4:1 (too thin = not a hand)
 
 # Debug: print pipeline internals every N frames (set 0 to disable)
 _DEBUG_EVERY_N = 0   # set to 30 to enable verbose frame logging
@@ -468,6 +477,36 @@ def _select_live_output(static_label, static_conf, gesture_label, gesture_conf):
     return "", 0.0, ""
 
 
+def _is_plausible_hand(hand_landmarks, frame_w, frame_h):
+    """Reject MediaPipe false-positive hand detections on non-hand objects.
+
+    Checks that the bounding box of the detected landmarks has a reasonable
+    size and aspect ratio relative to the frame.  Non-hand objects like pens,
+    phone cases, or fingers-of-light tend to produce very small or very
+    elongated landmark bounding boxes.
+    """
+    if not hand_landmarks or frame_w < 1 or frame_h < 1:
+        return False
+
+    xs = [float(lm.x) for lm in hand_landmarks]
+    ys = [float(lm.y) for lm in hand_landmarks]
+    bbox_w = max(xs) - min(xs)
+    bbox_h = max(ys) - min(ys)
+
+    # Check minimum area (relative to frame)
+    bbox_area = bbox_w * bbox_h
+    if bbox_area < MIN_HAND_BBOX_AREA_RATIO:
+        return False
+
+    # Check aspect ratio (too thin/flat = not a hand)
+    if bbox_w > 0 and bbox_h > 0:
+        aspect = max(bbox_w / bbox_h, bbox_h / bbox_w)
+        if aspect > MAX_HAND_BBOX_ASPECT:
+            return False
+
+    return True
+
+
 def _decode_posted_frame():
     f = request.files.get("frame")
     if f is None:
@@ -720,6 +759,13 @@ def infer_frame():
         and len(results.hand_landmarks) > 0
     )
 
+    # ── Hand plausibility gate — reject non-hand objects ──────────
+    if hand_detected:
+        h_frame, w_frame = frame.shape[:2]
+        if not _is_plausible_hand(results.hand_landmarks[0], w_frame, h_frame):
+            hand_detected = False
+            lm_list = []
+
     if hand_detected:
         s["last_hand_ts"] = now
         s["tracked_count"] = s.get("tracked_count", 0) + 1
@@ -742,10 +788,14 @@ def infer_frame():
                 if active_motion:
                     tracking_parts = ["hand", "motion"]
                 static_label, static_conf = _predict_static_sign(features)
+                # Only suppress static sign during motion if the static
+                # prediction is weak.  A confident static sign (≥ STATIC_LOCK_CONFIDENCE)
+                # is NEVER overridden by gesture — this prevents A→GOODBYE, B→SORRY.
                 if (
                     active_motion
                     and _gesture_classifier.is_available()
                     and _label_unit(static_label) == "letter"
+                    and static_conf < STATIC_LOCK_CONFIDENCE
                 ):
                     static_label, static_conf = "", 0.0
 

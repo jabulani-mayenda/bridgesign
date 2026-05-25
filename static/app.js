@@ -116,11 +116,12 @@ function handleLocalHandsResults(results) {
     const h = video.videoHeight;
     
     // Convert normalized coordinates to absolute pixels (like HandDetector.get_landmarks)
-    // CRITICAL: We mirror the X-coordinate (1.0 - x) because the server model was
-    // trained on mirrored front-camera coordinates.
+    // Mirror the X-coordinate ONLY for front camera — the server model was trained
+    // on mirrored front-camera coordinates.  Back camera is not mirrored.
+    const mirrorX = facingMode === "user";
     landmarksList = hand.map((lm, idx) => [
       idx,
-      Math.round((1.0 - lm.x) * w),
+      Math.round((mirrorX ? (1.0 - lm.x) : lm.x) * w),
       Math.round(lm.y * h)
     ]);
   }
@@ -393,14 +394,18 @@ async function captureAndInfer() {
     if (!canvas) return;
     canvas.width  = video.videoWidth;
     canvas.height = video.videoHeight;
-    // Flip horizontally so the frame matches the training data orientation
-    // (the model was trained with cv2.flip(frame,1) from camera.py)
     const ctx = canvas.getContext("2d");
-    ctx.save();
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0);
-    ctx.restore();
+    // Flip horizontally ONLY for front camera — model was trained on mirrored
+    // front-camera frames.  Back camera is already in the correct orientation.
+    if (facingMode === "user") {
+      ctx.save();
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0);
+      ctx.restore();
+    } else {
+      ctx.drawImage(video, 0, 0);
+    }
 
     _inferInFlight = true;
     canvas.toBlob(async (blob) => {
