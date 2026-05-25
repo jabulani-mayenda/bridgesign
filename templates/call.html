@@ -127,7 +127,7 @@
     height:100%;
     display:block;
     object-fit:cover;
-    transform:scaleX(-1);
+    /* transform controlled by JS based on facingMode */
   }
   .status {
     position:absolute;
@@ -312,6 +312,10 @@
         <i data-lucide="video" width="16" height="16"></i>
         Camera
       </button>
+      <button class="call-btn secondary" id="flipCameraBtn" type="button" title="Switch between front and back camera">
+        <i data-lucide="refresh-cw" width="16" height="16"></i>
+        Back Cam
+      </button>
       <button class="call-btn danger" id="endBtn" type="button">
         <i data-lucide="phone-off" width="16" height="16"></i>
         End
@@ -345,6 +349,8 @@
   window.ROOM_ID = {{ room_id|tojson }};
   window.CALL_USERNAME = {{ username|tojson }};
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 <script src="{{ url_for('static', filename='avatar/cwasa_driver.js') }}?v=cwasa-asl-dict-20260521"></script>
 <script type="module" src="{{ url_for('static', filename='avatar/avatar_controller.js') }}?v=cwasa-asl-dict-20260521"></script>
 <script src="{{ url_for('static', filename='avatar/avatar_driver.js') }}?v=cwasa-asl-dict-20260521"></script>

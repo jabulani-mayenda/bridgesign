@@ -1,3 +1,11 @@
+/* ── BridgeSign call.js ────────────────────────────────────────────
+   Fixes in this version:
+   1. Flip camera  – toggles front / back camera (phone-friendly)
+   2. Sign-to-speech – deaf partner's signs are spoken aloud on hearing side
+   3. Speech-to-sign – hearing partner's speech drives the avatar on deaf side
+   4. Role-aware UI labels and avatar status messages
+─────────────────────────────────────────────────────────────────── */
+
 const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
 const wsUrl = `${wsScheme}://${window.location.host}/ws/call/${window.ROOM_ID}`;
 
@@ -10,17 +18,96 @@ let isMuted = false;
 let cameraOff = false;
 let pendingDataMessages = [];
 
+// ── Camera facing mode (default: environment = back camera for phones) ──
+let facingMode = "environment";
+
 let _recognition = null;
 let _inferInterval = null;
 let _inferInFlight = false;
 let lastSign = "";
 let lastSignTime = 0;
 
+let _localHands = null;
+let useClientInference = false;
+
 const INFER_INTERVAL_MS = 140;
-const SIGN_REPEAT_MS = 1400;
+const SIGN_REPEAT_MS = 1600;
 const ICE_SERVERS = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" }
+  ]
 };
+
+// ── Initialize MediaPipe Hands locally if available ──
+function initLocalHands() {
+  if (typeof Hands !== "undefined") {
+    try {
+      _localHands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+      _localHands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.65,
+        minTrackingConfidence: 0.55
+      });
+      _localHands.onResults(handleLocalHandsResults);
+      useClientInference = true;
+      console.log("[Call] Client-side landmark inference active for call rooms! 🚀");
+    } catch (err) {
+      console.warn("[Call] Failed to initialize local Hands, using server fallback:", err);
+      useClientInference = false;
+    }
+  }
+}
+
+// Handle results from local MediaPipe Hands
+function handleLocalHandsResults(results) {
+  _inferInFlight = false; // Release lock
+  if (!localStream || cameraOff || role !== "deaf") return;
+
+  const video = els.localVideo;
+  if (!video || !video.videoWidth) return;
+
+  let landmarksList = null;
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const hand = results.multiHandLandmarks[0];
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    
+    // Mirror X-coordinates (1.0 - x) because the server model was
+    // trained on mirrored front-camera coordinates.
+    landmarksList = hand.map((lm, idx) => [
+      idx,
+      Math.round((1.0 - lm.x) * w),
+      Math.round(lm.y * h)
+    ]);
+  }
+
+  if (landmarksList) {
+    sendLocalLandmarks(landmarksList);
+  }
+}
+
+// Send local landmarks to the landmarks infer endpoint
+async function sendLocalLandmarks(landmarks) {
+  try {
+    const res = await fetch("/api/infer_landmarks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ landmarks })
+    });
+    if (res.ok) {
+      handleInferResponse(await res.json());
+    }
+  } catch (err) {
+    console.error("[Call] Landmarks infer error:", err);
+  }
+}
 
 const els = {};
 
@@ -31,8 +118,9 @@ function $(id) {
 function cacheElements() {
   [
     "roleSelect", "localVideo", "remoteVideo", "callStatus", "captionBar",
-    "connectionState", "muteBtn", "cameraBtn", "endBtn", "copyLinkBtn",
-    "typedMessageInput", "sendTextBtn", "callTranscript", "callAvatarStatus"
+    "connectionState", "muteBtn", "cameraBtn", "flipCameraBtn", "endBtn",
+    "copyLinkBtn", "typedMessageInput", "sendTextBtn", "callTranscript",
+    "callAvatarStatus"
   ].forEach(id => { els[id] = $(id); });
 }
 
@@ -60,6 +148,27 @@ function setTranscript(text) {
   if (els.callTranscript) els.callTranscript.textContent = text || "Waiting for captions...";
 }
 
+// ── Web Speech API speak helper (browser TTS) ──────────────────────
+function speak(text) {
+  if (!text || !window.speechSynthesis) return;
+  const normalized = text === text.toUpperCase()
+    ? text.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+    : text;
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(normalized);
+  utt.rate = 0.95;
+  utt.pitch = 1;
+  utt.volume = 1;
+  const voices = window.speechSynthesis.getVoices();
+  const pref = voices.find(v => v.lang.startsWith("en") && v.name.includes("Female"))
+            || voices.find(v => v.lang.startsWith("en"))
+            || voices[0];
+  if (pref) utt.voice = pref;
+  window.speechSynthesis.speak(utt);
+}
+if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = () => {};
+
+// ── Avatar helpers ─────────────────────────────────────────────────
 function initCallAvatar() {
   if (!window.BridgeSignAvatar) return;
   window.BridgeSignAvatar.init("callAvatarContainer", {
@@ -81,7 +190,6 @@ function queueGuidanceOnAvatar(guidance) {
       avatar.queueSign(item.sign_label);
       return;
     }
-
     if (item.type === "fingerspell" && item.word) {
       if (typeof avatar.queueLetters === "function") avatar.queueLetters(item.word);
       else avatar.queueText(item.word);
@@ -115,21 +223,36 @@ async function playTextOnAvatar(text) {
   if (typeof avatar.queueText === "function") avatar.queueText(cleanText);
 }
 
+// ── Main startup ───────────────────────────────────────────────────
 async function startCall() {
   cacheElements();
   bindControls();
   initCallAvatar();
-  setStatus("Starting camera and microphone...");
+  
+  // Try initializing client-side MediaPipe tracking
+  initLocalHands();
+  
+  setStatus("Starting camera...");
+
+  await acquireCamera();
+  updateMediaButtons();
+  connectWebSocket();
+  updateRoleLogic();
+}
+
+// ── Camera acquisition (respects facingMode) ───────────────────────
+async function acquireCamera() {
+  const constraints = {
+    video: { width: 960, height: 540, facingMode },
+    audio: true
+  };
 
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 960, height: 540, facingMode: "user" },
-      audio: true
-    });
+    localStream = await navigator.mediaDevices.getUserMedia(constraints);
   } catch (err) {
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 960, height: 540, facingMode: "user" },
+        video: { facingMode },
         audio: false
       });
       isMuted = true;
@@ -142,15 +265,75 @@ async function startCall() {
   }
 
   if (els.localVideo) {
+    // Mirror the preview only when using front camera
+    els.localVideo.style.transform = facingMode === "user" ? "scaleX(-1)" : "none";
     els.localVideo.srcObject = localStream;
     await els.localVideo.play().catch(() => {});
   }
-
-  updateMediaButtons();
-  connectWebSocket();
-  updateRoleLogic();
 }
 
+// ── Flip camera (toggle front ↔ back) ─────────────────────────────
+async function flipCamera() {
+  const btn = els.flipCameraBtn;
+  if (btn) btn.disabled = true;
+
+  // Stop current tracks
+  if (localStream) localStream.getVideoTracks().forEach(t => t.stop());
+
+  // Switch facing mode
+  facingMode = facingMode === "environment" ? "user" : "environment";
+
+  try {
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode },
+      audio: false
+    });
+
+    // Replace audio tracks into the new stream
+    if (localStream) {
+      localStream.getAudioTracks().forEach(t => newStream.addTrack(t));
+    }
+    localStream = newStream;
+
+    // Update local preview
+    if (els.localVideo) {
+      els.localVideo.style.transform = facingMode === "user" ? "scaleX(-1)" : "none";
+      els.localVideo.srcObject = localStream;
+      await els.localVideo.play().catch(() => {});
+    }
+
+    // Replace video sender on the peer connection
+    if (pc) {
+      const newVideoTrack = localStream.getVideoTracks()[0];
+      if (newVideoTrack) {
+        const sender = pc.getSenders().find(s => s.track && s.track.kind === "video");
+        if (sender) await sender.replaceTrack(newVideoTrack);
+      }
+    }
+
+    // Update canvas flip state and inference
+    cameraOff = false;
+    updateMediaButtons();
+  } catch (err) {
+    console.error("Flip camera failed:", err);
+    // Revert facing mode
+    facingMode = facingMode === "environment" ? "user" : "environment";
+    setStatus("Could not switch camera.");
+  }
+
+  if (btn) btn.disabled = false;
+  updateFlipBtn();
+}
+
+function updateFlipBtn() {
+  const btn = els.flipCameraBtn;
+  if (!btn) return;
+  const label = facingMode === "environment" ? "Front Cam" : "Back Cam";
+  btn.innerHTML = `<i data-lucide="refresh-cw" width="16" height="16"></i> ${label}`;
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
+// ── Controls wiring ────────────────────────────────────────────────
 function bindControls() {
   if (els.roleSelect) {
     role = els.roleSelect.value;
@@ -160,18 +343,22 @@ function bindControls() {
     });
   }
 
-  if (els.muteBtn) els.muteBtn.addEventListener("click", toggleMute);
-  if (els.cameraBtn) els.cameraBtn.addEventListener("click", toggleCamera);
-  if (els.endBtn) els.endBtn.addEventListener("click", endCall);
-  if (els.copyLinkBtn) els.copyLinkBtn.addEventListener("click", copyLink);
-  if (els.sendTextBtn) els.sendTextBtn.addEventListener("click", sendTypedMessage);
+  if (els.muteBtn)        els.muteBtn.addEventListener("click", toggleMute);
+  if (els.cameraBtn)      els.cameraBtn.addEventListener("click", toggleCamera);
+  if (els.flipCameraBtn)  els.flipCameraBtn.addEventListener("click", flipCamera);
+  if (els.endBtn)         els.endBtn.addEventListener("click", endCall);
+  if (els.copyLinkBtn)    els.copyLinkBtn.addEventListener("click", copyLink);
+  if (els.sendTextBtn)    els.sendTextBtn.addEventListener("click", sendTypedMessage);
   if (els.typedMessageInput) {
     els.typedMessageInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") sendTypedMessage();
     });
   }
+
+  updateFlipBtn();
 }
 
+// ── WebSocket / WebRTC ─────────────────────────────────────────────
 function connectWebSocket() {
   ws = new WebSocket(wsUrl);
 
@@ -305,11 +492,28 @@ function setupDataChannel() {
   };
 }
 
+// ── Data channel message handler ───────────────────────────────────
+// FIX #2: speak received signs aloud (sign-to-speech)
+// FIX #3: play avatar for received speech (speech-to-sign)
 function handleDataMessage(data) {
+
   if (data.type === "sign") {
     const label = data.label || "";
     setCaption(label, "var(--terracotta)");
     setTranscript(`Partner signed: ${label}`);
+
+    // If WE are the hearing partner, speak the sign aloud so we hear it
+    if (role === "hearing") {
+      speak(label);
+    }
+
+    // If WE are the deaf partner receiving a sign echo, show on avatar
+    if (role === "deaf") {
+      const avatar = window.callAvatar;
+      if (avatar && label) {
+        try { avatar.queueSign(label.toUpperCase().replace(/\s+/g, "_")); } catch (_) {}
+      }
+    }
     return;
   }
 
@@ -317,7 +521,13 @@ function handleDataMessage(data) {
     const text = data.text || "";
     setCaption(`"${text}"`, "var(--honey)");
     setTranscript(text);
-    playTextOnAvatar(text);
+
+    // If WE are the deaf partner receiving partner's speech, animate the avatar
+    if (role === "deaf") {
+      playTextOnAvatar(text);
+    }
+
+    // If WE are the hearing partner receiving a speech echo, just show it
     return;
   }
 
@@ -325,7 +535,13 @@ function handleDataMessage(data) {
     const text = data.text || "";
     setCaption(text, "var(--sage)");
     setTranscript(text);
-    playTextOnAvatar(text);
+
+    // Typed text from deaf side → speak it on hearing side
+    if (role === "hearing") {
+      speak(text);
+    } else {
+      playTextOnAvatar(text);
+    }
   }
 }
 
@@ -334,7 +550,6 @@ function sendData(payload) {
     dataChannel.send(JSON.stringify(payload));
     return true;
   }
-
   pendingDataMessages.push(payload);
   return false;
 }
@@ -358,22 +573,26 @@ function sendCaption(type, content, extra = {}) {
   }
 }
 
+// ── Role logic: deaf = sign inference, hearing = speech recognition ─
 function updateRoleLogic() {
   stopInferLoop();
   stopSpeechRecognition();
 
   if (role === "deaf") {
+    // I am signing → run hand inference, my signs go to the hearing partner as speech
     startInferLoop();
-    if (els.callAvatarStatus) els.callAvatarStatus.textContent = "Speech will sign here";
-    setCaption("Sign when ready", "rgba(255,255,255,.78)");
+    if (els.callAvatarStatus) els.callAvatarStatus.textContent = "Partner speech will sign here";
+    setCaption("Sign when ready – partner will hear you", "rgba(255,255,255,.78)");
     return;
   }
 
+  // I am the hearing partner → use my microphone, my speech drives the deaf side avatar
   startSpeechRecognition();
-  if (els.callAvatarStatus) els.callAvatarStatus.textContent = "Partner speech signs here";
-  setCaption("Speak when ready", "rgba(255,255,255,.78)");
+  if (els.callAvatarStatus) els.callAvatarStatus.textContent = "Your speech becomes signs for partner";
+  setCaption("Speak – partner's signs will appear here", "rgba(255,255,255,.78)");
 }
 
+// ── Sign inference loop (deaf role) ───────────────────────────────
 function startInferLoop() {
   if (_inferInterval) return;
   _inferInterval = setInterval(captureAndInfer, INFER_INTERVAL_MS);
@@ -388,36 +607,53 @@ function stopInferLoop() {
 async function captureAndInfer() {
   if (_inferInFlight || !localStream || cameraOff) return;
   const video = els.localVideo;
-  const canvas = $("inferCanvas");
-  if (!video || !canvas || !video.videoWidth) return;
+  if (!video || !video.videoWidth) return;
 
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const ctx = canvas.getContext("2d");
-  ctx.save();
-  ctx.translate(canvas.width, 0);
-  ctx.scale(-1, 1);
-  ctx.drawImage(video, 0, 0);
-  ctx.restore();
-
-  _inferInFlight = true;
-  canvas.toBlob(async (blob) => {
-    if (!blob) {
+  if (useClientInference && _localHands) {
+    _inferInFlight = true;
+    try {
+      await _localHands.send({ image: video });
+    } catch (err) {
+      console.warn("[Call] Local Hands send error:", err);
       _inferInFlight = false;
-      return;
+    }
+  } else {
+    const canvas = $("inferCanvas");
+    if (!canvas) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.save();
+
+    // Only flip horizontally for front camera (model trained with flipped front cam frames)
+    if (facingMode === "user") {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
     }
 
-    const fd = new FormData();
-    fd.append("frame", blob, "frame.jpg");
-    try {
-      const res = await fetch("/api/infer_frame", { method: "POST", body: fd });
-      if (res.ok) handleInferResponse(await res.json());
-    } catch (_) {}
-    _inferInFlight = false;
-  }, "image/jpeg", 0.72);
+    ctx.drawImage(video, 0, 0);
+    ctx.restore();
+
+    _inferInFlight = true;
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        _inferInFlight = false;
+        return;
+      }
+
+      const fd = new FormData();
+      fd.append("frame", blob, "frame.jpg");
+      try {
+        const res = await fetch("/api/infer_frame", { method: "POST", body: fd });
+        if (res.ok) handleInferResponse(await res.json());
+      } catch (_) {}
+      _inferInFlight = false;
+    }, "image/jpeg", 0.72);
+  }
 }
 
 function handleInferResponse(data) {
+  // Prefer completed sentence > completed word > current label
   const label = data.completed_sentence || data.completed_word || data.label || "";
   if (!label || data.hand_state !== "recognised") return;
 
@@ -426,9 +662,13 @@ function handleInferResponse(data) {
 
   lastSign = label;
   lastSignTime = now;
+
+  // Send the sign/word over the data channel to the hearing partner
+  // who will then have it spoken aloud by their browser
   sendCaption("sign", label, { confidence: data.confidence || 0 });
 }
 
+// ── Speech recognition (hearing role) ─────────────────────────────
 function startSpeechRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -451,6 +691,7 @@ function startSpeechRecognition() {
     }
 
     if (finalTranscript) {
+      // Send speech to the deaf partner — their avatar will sign it
       sendCaption("speech", finalTranscript.trim());
     } else if (interimTranscript) {
       setCaption(`"${interimTranscript.trim()}"`, "rgba(255,255,255,.72)");
@@ -486,6 +727,7 @@ function stopSpeechRecognition() {
   _recognition = null;
 }
 
+// ── Media toggles ──────────────────────────────────────────────────
 function toggleMute() {
   if (!localStream) return;
   isMuted = !isMuted;
@@ -515,6 +757,7 @@ function updateMediaButtons() {
   if (typeof lucide !== "undefined") lucide.createIcons();
 }
 
+// ── Typed message ──────────────────────────────────────────────────
 function sendTypedMessage() {
   const input = els.typedMessageInput;
   const text = input ? input.value.trim() : "";
@@ -523,6 +766,7 @@ function sendTypedMessage() {
   if (input) input.value = "";
 }
 
+// ── Copy link ──────────────────────────────────────────────────────
 async function copyLink() {
   const btn = els.copyLinkBtn;
   try {
@@ -540,6 +784,7 @@ async function copyLink() {
   }, 1800);
 }
 
+// ── Partner left ───────────────────────────────────────────────────
 function handlePeerLeft() {
   setStatus("Partner left. Waiting...");
   setConnection(`Room ${window.ROOM_ID} - waiting for partner`);
@@ -552,6 +797,7 @@ function handlePeerLeft() {
   if (els.remoteVideo) els.remoteVideo.srcObject = null;
 }
 
+// ── End call ───────────────────────────────────────────────────────
 function endCall() {
   stopInferLoop();
   stopSpeechRecognition();

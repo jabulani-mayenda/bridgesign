@@ -65,9 +65,10 @@ AGAIN SLOW SPEAK MORE LESS WAIT HERE THERE TOGETHER ALONE FAMILY FRIEND SCHOOL
 WORK HOME NAME AGE SICK HUNGRY COLD HOT LOVE GOOD BAD BEAUTIFUL
 """.lower().split())
 
-BOUNDARY_SECONDS   = 0.8   # seconds of no-hand → flush word (was 1.5 – too slow)
-SENTENCE_PAUSE_SEC = 2.0   # seconds of no new word → flush sentence (was 3.5)
+BOUNDARY_SECONDS   = 0.55  # seconds of no-hand → flush word (shortened for faster response)
+SENTENCE_PAUSE_SEC = 2.5   # seconds of no new word → flush sentence
 MAX_BUFFER_LEN     = 22    # safeguard: auto-flush if buffer grows too long
+WORD_DEDUP_SEC     = 0.8   # ignore the same gesture word if repeated within this window
 
 
 class WordAssembler:
@@ -99,6 +100,9 @@ class WordAssembler:
         If there are pending finger-spelled letters in the buffer, flush them
         first so word-level gestures do not get concatenated into the letter
         stream.
+
+        Deduplication: if the exact same word was committed within
+        WORD_DEDUP_SEC, it is ignored to stop repeated gesture emissions.
         """
         now = time.time()
         self._last_hand_ts = now
@@ -109,8 +113,16 @@ class WordAssembler:
                 self._commit_word(buffered_word, now)
 
         normalized = self._normalize_word(word)
-        if normalized:
-            self._commit_word(normalized, now)
+        if not normalized:
+            return ""
+
+        # Word-level deduplication: skip if same word very recently committed
+        if (normalized == self.last_word
+                and self._last_word_ts is not None
+                and (now - self._last_word_ts) < WORD_DEDUP_SEC):
+            return normalized
+
+        self._commit_word(normalized, now)
         return normalized
 
     def tick(self, hand_present: bool) -> dict:
@@ -222,7 +234,10 @@ class WordAssembler:
 
     @staticmethod
     def _normalize_word(word: str) -> str:
-        """Convert storage labels like THANK_YOU into UI-friendly text."""
+        """Convert storage labels like THANK_YOU into display text 'THANK YOU'.
+        The words are stored with spaces in the sentence (joined by ' '.join)
+        so each token stays as a single item in self._words.
+        """
         return str(word or "").replace("_", " ").strip().upper()
 
     def _validate(self, raw: str) -> str:

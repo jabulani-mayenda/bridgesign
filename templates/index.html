@@ -89,7 +89,7 @@
       <!-- Decorative ring -->
       <div class="deco-ring"></div>
       <div class="camera-container" id="cameraContainer">
-        <video id="videoFeed" autoplay playsinline muted style="display:none;width:100%;height:100%;object-fit:cover;border-radius:inherit;transform:scaleX(-1);"></video>
+        <video id="videoFeed" autoplay playsinline muted style="display:none;width:100%;height:100%;object-fit:cover;border-radius:inherit;"></video>
         <canvas id="inferCanvas" style="display:none"></canvas>
         <div class="camera-idle" id="cameraIdle">
           <div class="idle-icon">
@@ -161,6 +161,13 @@
             <i data-lucide="volume-2" width="13" height="13"></i>
           </button>
         </div>
+        <!-- Next Word: commit current letters as a complete word immediately -->
+        <button class="action-btn speak-btn" id="nextWordBtn" onclick="flushWord()"
+                style="margin-top:10px;width:100%;font-size:.82rem;"
+                title="Commit the current letters as a complete word now (without waiting)">
+          <i data-lucide="corner-down-right" width="14" height="14"></i>
+          Next Word ⏎
+        </button>
       </div>
 
       <!-- Controls -->
@@ -168,6 +175,10 @@
         <button class="action-btn start-btn" id="camToggleBtn" onclick="toggleCamera()">
           <i data-lucide="video" width="16" height="16"></i>
           Start Camera
+        </button>
+        <button class="action-btn secondary-btn" id="camFlipBtn" onclick="flipCamera()" style="display:none" title="Switch camera (front/back)">
+          <i data-lucide="refresh-cw" width="16" height="16"></i>
+          Back Cam
         </button>
         <button class="action-btn speak-btn" onclick="speakLast()">
           <i data-lucide="volume-2" width="16" height="16"></i>
@@ -624,6 +635,8 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <script src="{{ url_for('static', filename='avatar/cwasa_driver.js') }}?v=cwasa-asl-dict-20260521"></script>
 <script type="module" src="{{ url_for('static', filename='avatar/avatar_controller.js') }}?v=cwasa-asl-dict-20260521"></script>

@@ -68,6 +68,117 @@ let _inferInFlight = false;
 let _permissionRetry = null;
 const INFER_INTERVAL_MS = 100; // 10 fps
 
+let facingMode     = "user"; // "user" or "environment"
+let _localHands    = null;
+let useClientInference = false;
+
+// ── Initialize MediaPipe Hands locally if available ──
+function initLocalHands() {
+  if (typeof Hands !== "undefined") {
+    try {
+      _localHands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+      _localHands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.65,
+        minTrackingConfidence: 0.55
+      });
+      _localHands.onResults(handleLocalHandsResults);
+      useClientInference = true;
+      console.log("[BridgeSign] Client-side landmark inference active! 🚀");
+      
+      // Show flip button since we have local tracking capability
+      const flipBtn = document.getElementById("camFlipBtn");
+      if (flipBtn) flipBtn.style.display = "inline-flex";
+    } catch (err) {
+      console.warn("[BridgeSign] Failed to initialize local Hands, falling back to server-side:", err);
+      useClientInference = false;
+    }
+  } else {
+    console.log("[BridgeSign] MediaPipe Hands not found in window — using server-side frame inference.");
+  }
+}
+
+// Handle results from client-side MediaPipe Hands
+function handleLocalHandsResults(results) {
+  _inferInFlight = false; // Release infer lock
+  if (!cameraRunning) return;
+
+  const video = document.getElementById("videoFeed");
+  if (!video || !video.videoWidth) return;
+
+  let landmarksList = null;
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const hand = results.multiHandLandmarks[0];
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    
+    // Convert normalized coordinates to absolute pixels (like HandDetector.get_landmarks)
+    // CRITICAL: We mirror the X-coordinate (1.0 - x) because the server model was
+    // trained on mirrored front-camera coordinates.
+    landmarksList = hand.map((lm, idx) => [
+      idx,
+      Math.round((1.0 - lm.x) * w),
+      Math.round(lm.y * h)
+    ]);
+  }
+
+  // POST landmarks list to /api/infer_landmarks
+  sendLocalLandmarks(landmarksList);
+}
+
+// Send pre-extracted landmarks to the server
+async function sendLocalLandmarks(landmarks) {
+  try {
+    const res = await fetch("/api/infer_landmarks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ landmarks })
+    });
+    if (res.ok) {
+      handleInferResponse(await res.json());
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      console.error(`[Infer] Landmarks server error:`, errData.error);
+    }
+  } catch (err) {
+    console.error("[Infer] Landmarks network error:", err);
+  }
+}
+
+// ── Flip Camera (Dynamic facingMode switch) ──
+async function flipCamera() {
+  const btn = document.getElementById("camFlipBtn");
+  if (btn) btn.disabled = true;
+
+  if (cameraRunning) {
+    // Toggling while running: stop camera, switch facingMode, restart camera
+    if (_videoStream) {
+      _videoStream.getTracks().forEach(t => t.stop());
+      _videoStream = null;
+    }
+    stopInferLoop();
+    cameraRunning = false;
+    
+    // Toggle facingMode
+    facingMode = facingMode === "user" ? "environment" : "user";
+    
+    // Restart camera
+    await toggleCamera();
+  } else {
+    // If not running, just toggle state
+    facingMode = facingMode === "user" ? "environment" : "user";
+  }
+
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="refresh-cw" width="16" height="16"></i> ${facingMode === "user" ? "Back Cam" : "Front Cam"}`;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+}
+
 function isLocalMediaHost() {
   return ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
 }
@@ -193,6 +304,7 @@ function closePermissionHelp() {
 }
 
 // ── Camera Toggle (browser getUserMedia → canvas → /api/infer_frame) ──
+// ── Camera Toggle (browser getUserMedia → canvas → /api/infer_frame) ──
 async function toggleCamera() {
   const btn  = document.getElementById("camToggleBtn");
   const pill = document.getElementById("statusPill");
@@ -207,7 +319,7 @@ async function toggleCamera() {
     // Ask browser for camera access
     try {
       _videoStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: "user" }
+        video: { width: 640, height: 480, facingMode }
       });
     } catch (err) {
       showPermissionHelp("camera", err);
@@ -218,6 +330,7 @@ async function toggleCamera() {
 
     feed.srcObject = _videoStream;
     await feed.play();
+    feed.style.transform = facingMode === "user" ? "scaleX(-1)" : "none";
 
     cameraRunning = true;
     btn.innerHTML = '<i data-lucide="square" width="16" height="16"></i> Stop Camera';
@@ -265,42 +378,53 @@ function stopInferLoop() {
 async function captureAndInfer() {
   if (_inferInFlight || !cameraRunning || document.hidden) return;
   const video  = document.getElementById("videoFeed");
-  const canvas = document.getElementById("inferCanvas");
-  if (!video || !canvas || !video.videoWidth) return;
+  if (!video || !video.videoWidth) return;
 
-  canvas.width  = video.videoWidth;
-  canvas.height = video.videoHeight;
-  // Flip horizontally so the frame matches the training data orientation
-  // (the model was trained with cv2.flip(frame,1) from camera.py)
-  const ctx = canvas.getContext("2d");
-  ctx.save();
-  ctx.translate(canvas.width, 0);
-  ctx.scale(-1, 1);
-  ctx.drawImage(video, 0, 0);
-  ctx.restore();
-
-  _inferInFlight = true;
-  canvas.toBlob(async (blob) => {
-    if (!blob) { _inferInFlight = false; return; }
-    const fd = new FormData();
-    fd.append("frame", blob, "frame.jpg");
+  if (useClientInference && _localHands) {
+    _inferInFlight = true;
     try {
-      const res = await fetch("/api/infer_frame", { method: "POST", body: fd });
-      if (res.ok) {
-        handleInferResponse(await res.json());
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        console.error(`[Infer] Server error ${res.status}:`, errData.error || res.statusText);
-        if (res.status === 401) {
-          showToast("Session expired — please log in again.");
-          stopInferLoop();
-        }
-      }
+      await _localHands.send({ image: video });
     } catch (err) {
-      console.error("[Infer] Network/fetch error:", err);
+      console.warn("[Infer] Local MediaPipe send error:", err);
+      _inferInFlight = false;
     }
-    _inferInFlight = false;
-  }, "image/jpeg", 0.7);
+  } else {
+    const canvas = document.getElementById("inferCanvas");
+    if (!canvas) return;
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    // Flip horizontally so the frame matches the training data orientation
+    // (the model was trained with cv2.flip(frame,1) from camera.py)
+    const ctx = canvas.getContext("2d");
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0);
+    ctx.restore();
+
+    _inferInFlight = true;
+    canvas.toBlob(async (blob) => {
+      if (!blob) { _inferInFlight = false; return; }
+      const fd = new FormData();
+      fd.append("frame", blob, "frame.jpg");
+      try {
+        const res = await fetch("/api/infer_frame", { method: "POST", body: fd });
+        if (res.ok) {
+          handleInferResponse(await res.json());
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          console.error(`[Infer] Server error ${res.status}:`, errData.error || res.statusText);
+          if (res.status === 401) {
+            showToast("Session expired — please log in again.");
+            stopInferLoop();
+          }
+        }
+      } catch (err) {
+        console.error("[Infer] Network/fetch error:", err);
+      }
+      _inferInFlight = false;
+    }, "image/jpeg", 0.7);
+  }
 }
 
 function handleInferResponse(d) {
@@ -608,6 +732,56 @@ function speakLastWord() {
 function speakSentence() {
   const el = document.getElementById("sentenceDisplay");
   if (el && el.textContent && el.textContent !== "—") speak(el.textContent);
+}
+
+async function flushWord() {
+  try {
+    const res = await fetch("/api/assembler/flush", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.ok) {
+      // Update UI elements immediately
+      updateWordBuffer(d.word_buffer || "", d.last_word || "");
+      updateSentence(d.sentence || "");
+      
+      if (d.completed_word) {
+        lastWord = d.completed_word;
+        speak(d.completed_word);
+        addRecentChip(d.completed_word);
+        signCount++;
+        updateStripCount(signCount);
+        softChime();
+        const el = document.getElementById("stripTop");
+        if (el) el.textContent = d.completed_word;
+      }
+      
+      if (d.completed_sentence) {
+        const wordCount = d.completed_sentence.trim().split(/\s+/).length;
+        if (wordCount > 1) speak(d.completed_sentence);
+        showToast(`📢 "${d.completed_sentence}"`);
+        addRecentChip(`💬 ${d.completed_sentence}`);
+        signCount++;
+        updateStripCount(signCount);
+        updateSentence("");
+        const lwEl = document.getElementById("lastWordVal");
+        if (lwEl) lwEl.textContent = "—";
+        lastWord = "";
+        const topEl = document.getElementById("stripTop");
+        if (topEl) topEl.textContent = d.completed_sentence;
+        const strip = document.getElementById("sentenceStrip");
+        if (strip) {
+          strip.style.transition = "box-shadow .15s ease";
+          strip.style.boxShadow  = "0 0 0 4px rgba(74,140,140,.5)";
+          setTimeout(() => { strip.style.boxShadow = ""; }, 1400);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error flushing word:", err);
+  }
 }
 
 // ── Soft chime (Web Audio) ─────────────────────────────────
@@ -2042,6 +2216,10 @@ function renderSTTHistory(history) {
 // ── Init ───────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   if (typeof lucide !== "undefined") lucide.createIcons();
+  
+  // Try initializing client-side MediaPipe tracking
+  initLocalHands();
+  
   const activeTab = document.querySelector(".tab-btn.active")?.dataset.tab;
   if (activeTab === "speech") initializeAvatar();
   if (activeTab === "motion") initMotionRecorder();

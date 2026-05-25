@@ -37,16 +37,16 @@ sock = Sock(app)
 
 ROOM_ID_RE = re.compile(r"^[A-Za-z0-9_-]{3,40}$")
 
-# ── Gesture thresholds (raised to fix confusion during spelling) ──
-GESTURE_MOTION_THRESHOLD = 8.0
-GESTURE_STATIC_SUPPRESS_THRESHOLD = 6.0
-GESTURE_FRAME_MOTION_THRESHOLD = 0.75
+# ── Gesture thresholds (tightened to fix confusion between signs and gestures) ──
+GESTURE_MOTION_THRESHOLD = 10.0          # was 8.0  – require more movement before gesture even runs
+GESTURE_STATIC_SUPPRESS_THRESHOLD = 9.0  # was 6.0  – suppress static sign only with clear motion
+GESTURE_FRAME_MOTION_THRESHOLD = 1.0     # was 0.75 – higher per-frame delta required
 GESTURE_INFERENCE_EVERY_N = 2
-GESTURE_MIN_CONFIDENCE   = 0.45
-GESTURE_MARGIN           = 2.5
-GESTURE_LSTM_MIN_CONF    = 0.50   # was 0.55 — slightly more permissive for STATIC detection
-GESTURE_DECISION_MARGIN  = 0.05
-GESTURE_COOLDOWN_SEC     = 1.2    # was 1.5 s — slightly faster recovery
+GESTURE_MIN_CONFIDENCE   = 0.62          # was 0.45 – gesture must be more certain
+GESTURE_MARGIN           = 3.0           # was 2.5  – gesture needs a wider lead over static
+GESTURE_LSTM_MIN_CONF    = 0.65          # was 0.50 – LSTM gesture model must be confident
+GESTURE_DECISION_MARGIN  = 0.12          # was 0.05 – bigger lead needed to beat static sign
+GESTURE_COOLDOWN_SEC     = 1.8           # was 1.2  – longer pause between gesture emissions
 GESTURE_ONLY_LABELS      = {"J", "Z"}
 
 # Debug: print pipeline internals every N frames (set 0 to disable)
@@ -57,23 +57,37 @@ USERS_FILE = os.path.join(config.DATA_DIR, "users.json")
 _users_lock = threading.Lock()
 
 def load_users():
-    os.makedirs(config.DATA_DIR, exist_ok=True)
-    if os.path.exists(USERS_FILE):
-        try:
+    try:
+        os.makedirs(config.DATA_DIR, exist_ok=True)
+        if os.path.exists(USERS_FILE):
             with open(USERS_FILE, encoding="utf-8") as f:
                 data = json.load(f)
                 return data if isinstance(data, dict) else {}
-        except json.JSONDecodeError as e:
-            print(f"[Auth] Could not parse {USERS_FILE}: {e}")
-            return {}
+    except Exception as e:
+        print(f"[Auth] Could not load users from {USERS_FILE}: {e}")
     return {}
 
 def save_users(users):
-    os.makedirs(config.DATA_DIR, exist_ok=True)
-    tmp_path = f"{USERS_FILE}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(users, f, indent=2)
-    os.replace(tmp_path, USERS_FILE)
+    try:
+        os.makedirs(config.DATA_DIR, exist_ok=True)
+        tmp_path = f"{USERS_FILE}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(users, f, indent=2)
+        try:
+            os.replace(tmp_path, USERS_FILE)
+        except OSError as e:
+            print(f"[Auth] os.replace failed ({e}) — falling back to direct write to {USERS_FILE}")
+            # Fallback to direct write if os.replace fails across different partitions/volumes
+            with open(USERS_FILE, "w", encoding="utf-8") as f:
+                json.dump(users, f, indent=2)
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[Auth] Could not save users to {USERS_FILE}: {e}")
+        raise RuntimeError(f"Database write failed: {e}")
 
 def load_user_phrases(username):
     path = os.path.join(config.DATA_DIR, f"phrases_{username}.json")
@@ -586,13 +600,17 @@ def register():
             error = "Username and password are required."
         else:
             with _users_lock:
-                users = load_users()
-                if username in users:
-                    error = "Username already taken."
-                else:
-                    users[username] = {"password": generate_password_hash(password)}
-                    save_users(users)
-                    print(f"[Auth] Created account user={username!r} users_file={USERS_FILE}")
+                try:
+                    users = load_users()
+                    if username in users:
+                        error = "Username already taken."
+                    else:
+                        users[username] = {"password": generate_password_hash(password)}
+                        save_users(users)
+                        print(f"[Auth] Created account user={username!r} users_file={USERS_FILE}")
+                except Exception as e:
+                    print(f"[Auth] Registration error: {e}")
+                    error = f"Database write error: Could not save credentials. Check BRIDGESIGN_DATA_DIR permissions on your server."
             if not error:
                 session.clear()
                 if request.is_json:
@@ -822,6 +840,192 @@ def infer_frame():
     })
 
 
+@app.route("/api/infer_landmarks", methods=["POST"])
+@login_required
+def infer_landmarks():
+    """
+    Receive pre-extracted landmarks from the browser, run the classification
+    pipeline directly without running MediaPipe on the server.
+
+    Expected JSON payload:
+    {
+        "landmarks": [[id, cx, cy], ...]
+    }
+    """
+    username = session["username"]
+    s = _get_inference_session(username)
+    s["frame_count"] = s.get("frame_count", 0) + 1
+
+    data = request.get_json() or {}
+    lm_list = data.get("landmarks")
+
+    empty_response = {
+        "hand_state": "no_hand", "label": "", "confidence": 0.0,
+        "result_source": "", "result_unit": "",
+        "static_label": "", "static_confidence": 0.0,
+        "gesture_label": "", "gesture_confidence": 0.0,
+        "motion_magnitude": 0.0, "frame_motion": 0.0,
+        "mode": s["mode"], "word_buffer": "", "last_word": "",
+        "sentence": "", "completed_sentence": "", "completed_word": "",
+        "frame_count": s.get("frame_count", 0),
+        "tracked_count": s.get("tracked_count", 0),
+        "consecutive": s.get("consecutive", 0),
+        "landmark_count": 0,
+        "tracking_parts": [],
+        "hand_bbox": None,
+    }
+
+    if not lm_list or len(lm_list) < 21:
+        s["consecutive"]      = 0
+        s["prev_result_key"]  = ""
+        s["last_emitted_key"] = ""
+        s["prev_features"]    = None
+        s["gesture_ext"].clear()
+
+        # Word assembler tick
+        now = time.time()
+        grace_present = (now - s.get("last_hand_ts", 0.0)) < config.HAND_LOST_GRACE_SEC
+        asm = s["assembler"].tick(hand_present=grace_present)
+
+        empty_response["word_buffer"] = asm["word_buffer"] if s["mode"] == "word" else ""
+        empty_response["last_word"] = asm["last_word"] if s["mode"] == "word" else ""
+        empty_response["sentence"] = asm["sentence"] if s["mode"] == "word" else ""
+        empty_response["completed_sentence"] = (asm["completed_sentence"] or "") if s["mode"] == "word" else ""
+        empty_response["completed_word"] = (asm["completed_word"] or "") if s["mode"] == "word" else ""
+        return jsonify(empty_response)
+
+    try:
+        _load_inference_modules()
+    except Exception as e:
+        return jsonify({
+            "error": "Inference modules failed to load",
+            "detail": str(e),
+        }), 503
+
+    now = time.time()
+    s["last_hand_ts"] = now
+    s["tracked_count"] = s.get("tracked_count", 0) + 1
+    landmark_count = len(lm_list)
+    tracking_parts = ["hand"]
+
+    # Calculate bounding box
+    xs = [float(lm[1]) for lm in lm_list]
+    ys = [float(lm[2]) for lm in lm_list]
+    hand_bbox = {
+        "x": min(xs),
+        "y": min(ys),
+        "width": max(xs) - min(xs),
+        "height": max(ys) - min(ys),
+    }
+
+    hand_state       = "no_hand"
+    confirmed_label  = ""
+    confirmed_conf   = 0.0
+    confirmed_source = ""
+    confirmed_unit   = ""
+    static_label     = ""
+    static_conf      = 0.0
+    gesture_label    = ""
+    gesture_conf     = 0.0
+    motion_magnitude = 0.0
+    frame_motion     = 0.0
+
+    features = _extractor.extract_features(lm_list)
+    if features is not None:
+        prev_features = s.get("prev_features")
+        if prev_features is not None:
+            frame_motion = float(np.sum(np.abs(np.asarray(features) - np.asarray(prev_features))))
+        s["prev_features"] = np.asarray(features).copy()
+        s["gesture_ext"].push_frame(features)
+        motion_magnitude = s["gesture_ext"].get_motion_magnitude()
+        active_motion = (
+            motion_magnitude > GESTURE_STATIC_SUPPRESS_THRESHOLD
+            or frame_motion > GESTURE_FRAME_MOTION_THRESHOLD
+        )
+        if active_motion:
+            tracking_parts = ["hand", "motion"]
+        static_label, static_conf = _predict_static_sign(features)
+        if (
+            active_motion
+            and _gesture_classifier.is_available()
+            and _label_unit(static_label) == "letter"
+        ):
+            static_label, static_conf = "", 0.0
+
+        if now > s["gesture_cooldown_until"]:
+            gesture_label, gesture_conf = _predict_gesture_candidate(s, motion_magnitude)
+
+        label_raw, conf, source = _select_live_output(
+            static_label,
+            static_conf,
+            gesture_label,
+            gesture_conf,
+        )
+
+        if not label_raw:
+            s["consecutive"]     = 0
+            s["prev_result_key"] = ""
+            hand_state = "low_confidence"
+        else:
+            hand_state = "recognised"
+            result_key = f"{source}:{label_raw}"
+            if result_key == s["prev_result_key"]:
+                s["consecutive"] += 1
+            else:
+                s["consecutive"]     = 1
+                s["prev_result_key"] = result_key
+
+            if s["consecutive"] >= config.CONSECUTIVE_THRESHOLD:
+                confirmed_label  = _display_label(label_raw)
+                confirmed_conf   = conf
+                confirmed_source = source
+                confirmed_unit   = _label_unit(label_raw)
+
+                if result_key != s["last_emitted_key"]:
+                    s["last_emitted_key"] = result_key
+                    tracker.log_translation(
+                        confirmed_label,
+                        conf,
+                        f"camera_{source}",
+                    )
+                    if source == "gesture":
+                        s["gesture_cooldown_until"] = now + GESTURE_COOLDOWN_SEC
+                    if s["mode"] == "word":
+                        if confirmed_unit == "letter":
+                            s["assembler"].push_letter(label_raw)
+                        else:
+                            s["assembler"].push_word(label_raw)
+
+    # ── Word assembler tick ───────────────────────────────────────
+    asm = s["assembler"].tick(hand_present=True)
+
+    return jsonify({
+        "hand_state":         hand_state,
+        "label":              confirmed_label,
+        "confidence":         confirmed_conf,
+        "result_source":      confirmed_source,
+        "result_unit":        confirmed_unit,
+        "static_label":       _display_label(static_label),
+        "static_confidence":  static_conf,
+        "gesture_label":      _display_label(gesture_label),
+        "gesture_confidence": gesture_conf,
+        "motion_magnitude":   motion_magnitude,
+        "frame_motion":       frame_motion,
+        "mode":               s["mode"],
+        "word_buffer":        asm["word_buffer"]        if s["mode"] == "word" else "",
+        "last_word":          asm["last_word"]          if s["mode"] == "word" else "",
+        "sentence":           asm["sentence"]           if s["mode"] == "word" else "",
+        "completed_sentence": (asm["completed_sentence"] or "") if s["mode"] == "word" else "",
+        "completed_word":     (asm["completed_word"]     or "") if s["mode"] == "word" else "",
+        "frame_count":        s.get("frame_count", 0),
+        "tracked_count":      s.get("tracked_count", 0),
+        "consecutive":        s.get("consecutive", 0),
+        "landmark_count":     landmark_count,
+        "tracking_parts":     tracking_parts,
+        "hand_bbox":          hand_bbox,
+    })
+
+
 @app.route("/api/track_frame", methods=["POST"])
 @login_required
 def track_frame():
@@ -890,6 +1094,29 @@ def track_frame():
         "pose_landmark_count": len(pose_payload),
         "parts": all_parts,
         "landmark_count": total_landmarks,
+    })
+
+# ── Word assembler: manual flush (Next Word button) ───────────────
+@app.route("/api/assembler/flush", methods=["POST"])
+@login_required
+def assembler_flush():
+    """
+    Immediately commit the current letter buffer as a word.
+    Called when the user presses the 'Next Word' button in the UI.
+    Returns the updated assembler state so the frontend can refresh.
+    """
+    username = session["username"]
+    s = _get_inference_session(username)
+    word = s["assembler"].manual_flush()
+    asm  = s["assembler"].tick(hand_present=False)
+    return jsonify({
+        "ok":               True,
+        "flushed_word":     word,
+        "word_buffer":      asm["word_buffer"],
+        "last_word":        asm["last_word"],
+        "sentence":         asm["sentence"],
+        "completed_word":   asm["completed_word"] or word,
+        "completed_sentence": asm["completed_sentence"] or "",
     })
 
 # ── Mode toggle ───────────────────────────────────────────────────
