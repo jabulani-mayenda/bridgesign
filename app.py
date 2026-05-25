@@ -6,10 +6,12 @@ import os
 import re
 import secrets
 import string
+import traceback
 import numpy as np
 from flask import Flask, render_template, Response, jsonify, request, session, redirect, url_for
 from flask_cors import CORS
 from flask_sock import Sock
+from werkzeug.exceptions import HTTPException
 from werkzeug.security import generate_password_hash, check_password_hash
 import config
 from hand_detector import HandDetector
@@ -28,6 +30,7 @@ from call_room import room_manager
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "bridgesign_secret_key_2024")
+app.config["JSON_SORT_KEYS"] = False
 CORS(app)
 sock = Sock(app)
 
@@ -50,28 +53,62 @@ _DEBUG_EVERY_N = 0   # set to 30 to enable verbose frame logging
 
 # ── User Store (file-based) ───────────────────────────────────────
 USERS_FILE = os.path.join(config.DATA_DIR, "users.json")
+_users_lock = threading.Lock()
 
 def load_users():
+    os.makedirs(config.DATA_DIR, exist_ok=True)
     if os.path.exists(USERS_FILE):
-        with open(USERS_FILE) as f:
-            return json.load(f)
+        try:
+            with open(USERS_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+        except json.JSONDecodeError as e:
+            print(f"[Auth] Could not parse {USERS_FILE}: {e}")
+            return {}
     return {}
 
 def save_users(users):
-    with open(USERS_FILE, "w") as f:
+    os.makedirs(config.DATA_DIR, exist_ok=True)
+    tmp_path = f"{USERS_FILE}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(users, f, indent=2)
+    os.replace(tmp_path, USERS_FILE)
 
 def load_user_phrases(username):
     path = os.path.join(config.DATA_DIR, f"phrases_{username}.json")
     if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+        except json.JSONDecodeError as e:
+            print(f"[Phrases] Could not parse {path}: {e}")
+            return {}
     return {}
 
 def save_user_phrases(username, phrases):
+    os.makedirs(config.DATA_DIR, exist_ok=True)
     path = os.path.join(config.DATA_DIR, f"phrases_{username}.json")
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(phrases, f, indent=2)
+
+
+def _request_payload():
+    if request.is_json:
+        return request.get_json(silent=True) or {}
+    return request.form
+
+
+def _data_dir_probe():
+    try:
+        os.makedirs(config.DATA_DIR, exist_ok=True)
+        probe_path = os.path.join(config.DATA_DIR, ".write_probe")
+        with open(probe_path, "w", encoding="utf-8") as f:
+            f.write("ok")
+        os.remove(probe_path)
+        return {"ok": True, "path": config.DATA_DIR}
+    except Exception as e:
+        return {"ok": False, "path": config.DATA_DIR, "error": str(e)}
 
 # ── Singleton inference modules ─────────────────────────────────
 # Load these after the web app has imported so Render can bind a port quickly.
@@ -132,6 +169,22 @@ def health():
         "inference_ready": bool(_inference_status["ready"]),
         "inference_loading": bool(_inference_status["loading"]),
         "inference_error": _inference_status["error"],
+        "data_dir": config.DATA_DIR,
+        "data_dir_exists": os.path.isdir(config.DATA_DIR),
+        "data_dir_writable": os.access(config.DATA_DIR, os.W_OK),
+    }), 200
+
+
+@app.route("/test-api", methods=["GET", "POST"])
+def test_api():
+    payload = _request_payload()
+    return jsonify({
+        "status": "ok",
+        "method": request.method,
+        "content_type": request.content_type,
+        "is_json": request.is_json,
+        "payload_keys": sorted(payload.keys()) if hasattr(payload, "keys") else [],
+        "data_dir_probe": _data_dir_probe(),
     }), 200
 
 # ── Startup model sanity check ────────────────────────────────────
@@ -463,6 +516,18 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(e):
+    if isinstance(e, HTTPException):
+        return e
+    print("[BridgeSign] Unhandled exception:")
+    traceback.print_exc()
+    wants_json = request.path.startswith("/api/") or request.path in {"/health", "/test-api"}
+    if wants_json:
+        return jsonify({"error": "Internal server error", "detail": str(e)}), 500
+    return "Internal server error", 500
+
 # ── Auth routes ───────────────────────────────────────────────────
 @app.route("/")
 def index():
@@ -481,13 +546,19 @@ def login():
     elif request.method == "GET" and "username" in session:
         return redirect(url_for("index"))
     if request.method == "POST":
+        payload = _request_payload()
+        username = payload.get("username", "").strip()
+        password = payload.get("password", "")
         users = load_users()
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
+        print(f"[Auth] Login attempt user={username!r} found={username in users}")
         if username in users and check_password_hash(users[username]["password"], password):
             session["username"] = username
+            if request.is_json:
+                return jsonify({"ok": True, "redirect": url_for("index")})
             return redirect(url_for("index"))
         error = "Invalid username or password."
+        if request.is_json:
+            return jsonify({"ok": False, "error": error}), 401
     return render_template("login.html", error=error, message=message)
 
 @app.route("/register", methods=["GET", "POST"])
@@ -496,18 +567,27 @@ def register():
         return redirect(url_for("index"))
     error = None
     if request.method == "POST":
-        users = load_users()
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
+        payload = _request_payload()
+        username = payload.get("username", "").strip()
+        password = payload.get("password", "")
         if not username or not password:
             error = "Username and password are required."
-        elif username in users:
-            error = "Username already taken."
         else:
-            users[username] = {"password": generate_password_hash(password)}
-            save_users(users)
-            session.clear()
-            return redirect(url_for("login", registered="1"))
+            with _users_lock:
+                users = load_users()
+                if username in users:
+                    error = "Username already taken."
+                else:
+                    users[username] = {"password": generate_password_hash(password)}
+                    save_users(users)
+                    print(f"[Auth] Created account user={username!r} users_file={USERS_FILE}")
+            if not error:
+                session.clear()
+                if request.is_json:
+                    return jsonify({"ok": True, "redirect": url_for("login", registered="1")})
+                return redirect(url_for("login", registered="1"))
+        if request.is_json:
+            return jsonify({"ok": False, "error": error}), 400
     return render_template("register.html", error=error)
 
 @app.route("/logout")

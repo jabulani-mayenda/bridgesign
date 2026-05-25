@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 # Read from environment for cloud deployment (Render, Heroku, etc.)
 # Falls back to dev defaults when running locally.
@@ -38,14 +39,28 @@ MIN_PREDICTION_CONFIDENCE = 0.15
 
 # Path Constants
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODELS_DIR = os.path.join(BASE_DIR, "models")
-DATA_DIR = os.path.join(BASE_DIR, "data")
-DATASET_DIR = os.path.join(BASE_DIR, "dataset")
 
-# Create required directories
-os.makedirs(MODELS_DIR, exist_ok=True)
-os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(DATASET_DIR, exist_ok=True)
+
+def _ensure_dir(path, fallback_name=None):
+    try:
+        os.makedirs(path, exist_ok=True)
+        return path
+    except OSError as e:
+        if fallback_name:
+            fallback = os.path.join(tempfile.gettempdir(), fallback_name)
+            os.makedirs(fallback, exist_ok=True)
+            print(f"[Config] Could not write to {path!r}: {e}. Using {fallback!r}.")
+            return fallback
+        print(f"[Config] Could not create {path!r}: {e}.")
+        return path
+
+
+MODELS_DIR = _ensure_dir(os.path.join(BASE_DIR, "models"))
+DATA_DIR = _ensure_dir(
+    os.environ.get("BRIDGESIGN_DATA_DIR", os.path.join(BASE_DIR, "data")),
+    "bridgesign-data",
+)
+DATASET_DIR = _ensure_dir(os.path.join(BASE_DIR, "dataset"))
 
 # TTS Settings
 TTS_RATE = 150

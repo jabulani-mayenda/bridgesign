@@ -15,13 +15,15 @@ The call module also uses WebSockets for signaling, so deploy as a dynamic web s
    `gunicorn app:app --worker-class gthread --workers 1 --threads 8 --bind 0.0.0.0:$PORT --timeout 120`
 5. Set the health check path to `/health` if Render does not read it from `render.yaml`.
 6. Confirm these environment variables if Render does not read them from `render.yaml`:
-   `PORT=10000`, `HOSTNAME=0.0.0.0`, `BRIDGESIGN_HOST=0.0.0.0`, `BRIDGESIGN_WARM_INFERENCE=0`.
+   `PORT=10000`, `HOSTNAME=0.0.0.0`, `BRIDGESIGN_HOST=0.0.0.0`, `BRIDGESIGN_WARM_INFERENCE=0`, `BRIDGESIGN_DATA_DIR=/tmp/bridgesign-data`.
 7. Set `SECRET_KEY` to a random value if Render does not generate it from `render.yaml`.
 8. Open the deployed `https://...onrender.com` URL on your phone.
 
 If an existing Render service was created with the Python native runtime and Render will not let you change its runtime, create a new Web Service with Docker selected. MediaPipe needs OS-level packages that are not present in Render's native Python image.
 
 The Render service sets `BRIDGESIGN_WARM_INFERENCE=0` so the web server can pass health checks immediately. MediaPipe and the sign models load lazily the first time a camera inference endpoint receives a frame.
+
+User accounts, custom emergency phrases, session stats, and temporary uploads use `BRIDGESIGN_DATA_DIR`. The Docker/Render default is `/tmp/bridgesign-data`, which is writable but ephemeral. For persistent accounts, add a Render Disk and point `BRIDGESIGN_DATA_DIR` at the disk mount path.
 
 ## Why One Worker
 

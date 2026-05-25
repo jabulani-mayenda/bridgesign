@@ -15,3 +15,5 @@ services:
         value: 0.0.0.0
       - key: BRIDGESIGN_WARM_INFERENCE
         value: "0"
+      - key: BRIDGESIGN_DATA_DIR
+        value: /tmp/bridgesign-data
