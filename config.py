@@ -25,7 +25,7 @@ FPS = 30
 HAND_LOST_GRACE_SEC = 0.5  # 0.5 s feels instant but covers a hand-swap
 
 # MediaPipe Settings
-MIN_DETECTION_CONFIDENCE = 0.7    # Slightly lower: catches hand reliably in all lighting
+MIN_DETECTION_CONFIDENCE = 0.5    # Lowered from 0.7 to 0.5: industry standard default, significantly more robust in poor lighting/angles
 MIN_TRACKING_CONFIDENCE  = 0.5
 MAX_NUM_HANDS            = 1    # Single hand = half the MediaPipe work
 
