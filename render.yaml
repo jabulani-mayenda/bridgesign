@@ -17,3 +17,7 @@ services:
         value: "0"
       - key: BRIDGESIGN_DATA_DIR
         value: /tmp/bridgesign-data
+      - key: RENDER
+        value: "true"
+      - key: GUNICORN_TIMEOUT
+        value: "180"

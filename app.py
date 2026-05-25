@@ -182,7 +182,8 @@ def _load_inference_modules():
         except Exception as e:
             _inference_status.update({"ready": False, "loading": False, "error": str(e)})
             print(f"[BridgeSign] Inference module load failed: {e}")
-            raise
+            traceback.print_exc()
+            # Do not crash the gunicorn worker — keep /health and the UI alive.
 
 
 def _warm_inference_modules():

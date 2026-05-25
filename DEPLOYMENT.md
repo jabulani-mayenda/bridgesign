@@ -30,7 +30,8 @@ The call module also uses WebSockets for signaling, so deploy as a dynamic web s
    `gunicorn app:app --worker-class gthread --workers 1 --threads 8 --bind 0.0.0.0:$PORT --timeout 120`
 5. Set the health check path to `/health` if Render does not read it from `render.yaml`.
 6. Confirm these environment variables if Render does not read them from `render.yaml`:
-   `PORT=10000`, `HOSTNAME=0.0.0.0`, `BRIDGESIGN_HOST=0.0.0.0`, `BRIDGESIGN_WARM_INFERENCE=0`, `BRIDGESIGN_DATA_DIR=/tmp/bridgesign-data`.
+   `PORT=10000`, `HOSTNAME=0.0.0.0`, `BRIDGESIGN_HOST=0.0.0.0`, `BRIDGESIGN_WARM_INFERENCE=0`, `BRIDGESIGN_DATA_DIR=/tmp/bridgesign-data`, `RENDER=true`, `GUNICORN_TIMEOUT=180`.
+7. If you see **502 Bad Gateway**, check Render Logs for `WORKER TIMEOUT`, `SIGKILL`, or `Out of memory`. The sign model must stay under ~80MB on disk; use at least the **Starter** plan (512MB RAM) or disable warm inference (`BRIDGESIGN_WARM_INFERENCE=0`).
 7. Set `SECRET_KEY` to a random value if Render does not generate it from `render.yaml`.
 8. Open the deployed `https://...onrender.com` URL on your phone.
 

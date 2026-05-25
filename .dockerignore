@@ -25,3 +25,12 @@ _cwasa_full_chrome.log
 _cwasa_probe_chrome.log
 
 collect_session.bat
+
+# Large backups — not needed in production image
+models/sign_model_broken.pkl
+models/sign_model_legacy_backup.pkl
+models/*_backup.*
+data/dataset_*.csv
+data/dataset_pre_retrain.csv
+data/gesture_dataset.csv
+dataset/

@@ -5,7 +5,10 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PORT=10000 \
     HOSTNAME=0.0.0.0 \
-    BRIDGESIGN_DATA_DIR=/tmp/bridgesign-data
+    BRIDGESIGN_DATA_DIR=/tmp/bridgesign-data \
+    BRIDGESIGN_WARM_INFERENCE=0 \
+    RENDER=true \
+    GUNICORN_TIMEOUT=180
 
 WORKDIR /app
 

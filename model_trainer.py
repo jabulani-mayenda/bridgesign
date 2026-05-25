@@ -206,12 +206,13 @@ def main():
     # 4. Build RandomForest classifier (fast & accurate)
     # NOTE: SVM + VotingClassifier was removed — it added 30+ min training
     # time with no meaningful accuracy improvement over RF alone (99.95%).
+    # Keep the forest small enough for Render's 512MB instances (~30–50MB on disk).
     rf = RandomForestClassifier(
-        n_estimators=500,
-        max_depth=None,
+        n_estimators=200,
+        max_depth=28,
         min_samples_leaf=2,
         class_weight="balanced",
-        n_jobs=-1,          # use all CPU cores for speed
+        n_jobs=-1,
         random_state=42,
     )
 
@@ -221,7 +222,7 @@ def main():
     ])
 
     # 5. Train on full augmented training set
-    print("  Fitting model (RandomForest, 500 trees)...")
+    print("  Fitting model (RandomForest, 200 trees, max_depth=28)...")
     pipeline.fit(X_train, y_train)
     cv_scores = np.array([pipeline.score(X_val, y_val)])  # simple holdout score
 
