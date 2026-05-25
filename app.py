@@ -17,7 +17,6 @@ from feature_extractor import FeatureExtractor
 from classifier import Classifier
 from gesture_feature_extractor import GestureFeatureExtractor
 from gesture_classifier import GestureClassifier
-from text_to_speech import TextToSpeech
 from image_translator import ImageTranslator
 from session_tracker import SessionTracker
 from emergency_phrases import EmergencyPhrases
@@ -74,18 +73,66 @@ def save_user_phrases(username, phrases):
     with open(path, "w") as f:
         json.dump(phrases, f, indent=2)
 
-# ── Singleton inference modules (loaded once at startup) ──────────
-print("[BridgeSign] Loading inference modules...")
-_detector           = HandDetector()
-_motion_detector    = HandDetector(max_hands=2, detection_con=0.55, track_con=0.45)
-_pose_detector      = PoseDetector(detection_con=0.5, track_con=0.5)
-_extractor          = FeatureExtractor()
-_classifier         = Classifier()
-_gesture_classifier = GestureClassifier()
+# ── Singleton inference modules ─────────────────────────────────
+# Load these after the web app has imported so Render can bind a port quickly.
+_detector           = None
+_motion_detector    = None
+_pose_detector      = None
+_extractor          = None
+_classifier         = None
+_gesture_classifier = None
 _detector_lock      = threading.Lock()
 _motion_detector_lock = threading.Lock()
 _pose_detector_lock = threading.Lock()
-print("[BridgeSign] Modules ready.")
+_inference_init_lock = threading.Lock()
+_inference_status = {"ready": False, "loading": False, "error": ""}
+
+
+def _load_inference_modules():
+    """Initialize MediaPipe/model objects once, without blocking app import."""
+    global _detector, _motion_detector, _pose_detector
+    global _extractor, _classifier, _gesture_classifier
+
+    if _inference_status["ready"]:
+        return
+
+    with _inference_init_lock:
+        if _inference_status["ready"]:
+            return
+
+        _inference_status.update({"ready": False, "loading": True, "error": ""})
+        try:
+            print("[BridgeSign] Loading inference modules...")
+            _detector           = HandDetector()
+            _motion_detector    = HandDetector(max_hands=2, detection_con=0.55, track_con=0.45)
+            _pose_detector      = PoseDetector(detection_con=0.5, track_con=0.5)
+            _extractor          = FeatureExtractor()
+            _classifier         = Classifier()
+            _gesture_classifier = GestureClassifier()
+            print("[BridgeSign] Modules ready.")
+            _run_sanity_check()
+            _inference_status.update({"ready": True, "loading": False, "error": ""})
+        except Exception as e:
+            _inference_status.update({"ready": False, "loading": False, "error": str(e)})
+            print(f"[BridgeSign] Inference module load failed: {e}")
+            raise
+
+
+def _warm_inference_modules():
+    try:
+        _load_inference_modules()
+    except Exception:
+        pass
+
+
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "inference_ready": bool(_inference_status["ready"]),
+        "inference_loading": bool(_inference_status["loading"]),
+        "inference_error": _inference_status["error"],
+    }), 200
 
 # ── Startup model sanity check ────────────────────────────────────
 # Run a few known samples through the classifier to catch corrupted
@@ -121,9 +168,11 @@ def _run_sanity_check():
         print("  Re-run: python model_trainer.py")
         print("=" * 52)
 
-_run_sanity_check()
 
-tts       = TextToSpeech()
+if os.environ.get("BRIDGESIGN_WARM_INFERENCE", "1") == "1":
+    threading.Thread(target=_warm_inference_modules, daemon=True).start()
+
+tts       = None  # Browser speech synthesis handles speaking in the web UI.
 tracker   = SessionTracker()
 emergency = EmergencyPhrases()
 learning  = LearningMode()
@@ -519,6 +568,14 @@ def infer_frame():
     if frame is None:
         return jsonify(empty_response)
 
+    try:
+        _load_inference_modules()
+    except Exception as e:
+        return jsonify({
+            "error": "Inference modules failed to load",
+            "detail": str(e),
+        }), 503
+
     now = time.time()
     hand_state          = "no_hand"
     confirmed_label     = ""
@@ -691,6 +748,21 @@ def track_frame():
             "pose_landmark_count": 0,
             "error": decode_error or "Invalid frame",
         })
+
+    try:
+        _load_inference_modules()
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "source": "server_hand_pose",
+            "hands": [],
+            "pose": [],
+            "parts": [],
+            "landmark_count": 0,
+            "pose_landmark_count": 0,
+            "error": "Inference modules failed to load",
+            "detail": str(e),
+        }), 503
 
     # ── Hand detection ────────────────────────────────────────
     with _motion_detector_lock:

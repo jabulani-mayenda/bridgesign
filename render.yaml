@@ -3,8 +3,11 @@ services:
     name: bridgesign
     runtime: docker
     dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
     envVars:
       - key: SECRET_KEY
         generateValue: true
       - key: BRIDGESIGN_HOST
         value: 0.0.0.0
+      - key: BRIDGESIGN_WARM_INFERENCE
+        value: "0"
