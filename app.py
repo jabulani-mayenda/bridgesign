@@ -321,8 +321,16 @@ def _label_unit(label):
 
 
 def _predict_static_sign(features):
-    """Run the alphabet/static sign classifier and apply confidence gating."""
+    """
+    Run the alphabet classifier on both orientations (mirrored + raw).
+    Training data mixes flipped webcam captures and unflipped photos; phones
+    also switch front (mirrored) vs back (unmirrored) cameras at runtime.
+    """
     label, conf = _classifier.predict(features)
+    flipped = _extractor.flip_x(features)
+    flip_label, flip_conf = _classifier.predict(flipped)
+    if flip_conf > conf:
+        label, conf = flip_label, flip_conf
     if conf < config.MIN_PREDICTION_CONFIDENCE or label in ("", "Unknown", "Error"):
         return "", 0.0
     # J and Z are motion letters; let the gesture model own them in live use.
@@ -458,6 +466,14 @@ def _select_live_output(static_label, static_conf, gesture_label, gesture_conf):
     A gesture can win even if the static classifier is unsure, but it must
     beat a confident static sign by a small margin to avoid mode crossover.
     """
+    # Confident static letters are never replaced by word gestures (A→GOODBYE).
+    if (
+        static_label
+        and _label_unit(static_label) == "letter"
+        and static_conf >= STATIC_LOCK_CONFIDENCE
+    ):
+        return static_label, static_conf, "handsign"
+
     if gesture_label:
         gesture_wins = not static_label
         if static_label:
@@ -999,6 +1015,7 @@ def infer_landmarks():
             active_motion
             and _gesture_classifier.is_available()
             and _label_unit(static_label) == "letter"
+            and static_conf < STATIC_LOCK_CONFIDENCE
         ):
             static_label, static_conf = "", 0.0
 

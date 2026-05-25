@@ -79,11 +79,10 @@ function handleLocalHandsResults(results) {
     const w = video.videoWidth;
     const h = video.videoHeight;
     
-    // Mirror X-coordinates (1.0 - x) because the server model was
-    // trained on mirrored front-camera coordinates.
+    // Native landmark coords; server picks best of mirrored vs raw orientation.
     landmarksList = hand.map((lm, idx) => [
       idx,
-      Math.round((1.0 - lm.x) * w),
+      Math.round(lm.x * w),
       Math.round(lm.y * h)
     ]);
   }
@@ -624,12 +623,6 @@ async function captureAndInfer() {
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
     ctx.save();
-
-    // Only flip horizontally for front camera (model trained with flipped front cam frames)
-    if (facingMode === "user") {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-    }
 
     ctx.drawImage(video, 0, 0);
     ctx.restore();

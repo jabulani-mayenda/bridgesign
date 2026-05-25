@@ -3,7 +3,7 @@
   "cv_accuracy_std": 0.0,
   "validation_accuracy": 1.0,
   "validation_strategy": "stratified 20% holdout (pre-augmentation)",
-  "augmentation": "3 copies (noise + scale jitter)",
+  "augmentation": "3 copies (noise + scale jitter) + mirror views (excludes ['J', 'P', 'Q', 'Z'])",
   "classification_report": {
     "A": {
       "precision": 1.0,

@@ -33,6 +33,8 @@ METRICS_PATH = MODEL_PATH.replace(".pkl", "_metrics.json")
 # ── Augmentation parameters ──────────────────────────────────────────────────
 AUG_NOISE_STD   = 0.015   # σ for Gaussian noise (in normalised units)
 AUG_COPIES      = 3       # how many augmented copies per original sample
+# Directional signs break under horizontal mirror (J/P/Q/Z hand paths).
+MIRROR_EXCLUDE = frozenset({"J", "P", "Q", "Z"})
 
 
 # -- Helpers -----------------------------------------------------------------
@@ -97,6 +99,29 @@ def augment_dataset(X, y, n_copies=AUG_COPIES, noise_std=AUG_NOISE_STD,
     return X_aug, y_aug
 
 
+def _flip_features_x(X):
+    """Mirror wrist-normalized X coords (back vs front camera)."""
+    out = X.copy()
+    out[:, 0::2] *= -1.0
+    return out
+
+
+def augment_mirror_views(X, y, classes, exclude=MIRROR_EXCLUDE):
+    """
+    Add horizontally mirrored copies so the model works with both front
+    (mirrored) and back (unmirrored) phone cameras.
+    """
+    id_to_label = {i: c for i, c in enumerate(classes)}
+    safe_idx = [
+        i for i in range(len(y))
+        if id_to_label[int(y[i])] not in exclude
+    ]
+    if not safe_idx:
+        return X, y
+    idx = np.array(safe_idx, dtype=np.int64)
+    return np.vstack([X, _flip_features_x(X[idx])]), np.concatenate([y, y[idx]])
+
+
 def save_classes(classes):
     with open(CLASSES_PATH, "w") as f:
         json.dump(classes, f, indent=2)
@@ -119,7 +144,10 @@ def save_metrics(classes, cv_scores, val_acc, y_val, y_pred):
         "cv_accuracy_std":       float(cv_scores.std()),
         "validation_accuracy":   float(val_acc),
         "validation_strategy":   "stratified 20% holdout (pre-augmentation)",
-        "augmentation":          f"{AUG_COPIES} copies (noise + scale jitter)",
+        "augmentation":          (
+            f"{AUG_COPIES} copies (noise + scale jitter) + mirror views "
+            f"(excludes {sorted(MIRROR_EXCLUDE)})"
+        ),
         "classification_report": report,
         "confusion_matrix":      cm,
     }
@@ -171,6 +199,8 @@ def main():
     # 3. Augment only the training set
     print(f"  Augmenting training set ({AUG_COPIES} noise + scale jitter copies)...")
     X_train, y_train = augment_dataset(X_train_raw, y_train_raw)
+    print("  Adding mirror-view copies (front/back camera robustness)...")
+    X_train, y_train = augment_mirror_views(X_train, y_train, classes)
     print(f"  Train (augmented): {len(X_train)}\n")
 
     # 4. Build RandomForest classifier (fast & accurate)

@@ -115,13 +115,11 @@ function handleLocalHandsResults(results) {
     const w = video.videoWidth;
     const h = video.videoHeight;
     
-    // Convert normalized coordinates to absolute pixels (like HandDetector.get_landmarks)
-    // Mirror the X-coordinate ONLY for front camera — the server model was trained
-    // on mirrored front-camera coordinates.  Back camera is not mirrored.
-    const mirrorX = facingMode === "user";
+    // Pixel landmarks for the server; dual-orientation inference on the server
+    // picks mirrored vs raw, so send native MediaPipe coordinates here.
     landmarksList = hand.map((lm, idx) => [
       idx,
-      Math.round((mirrorX ? (1.0 - lm.x) : lm.x) * w),
+      Math.round(lm.x * w),
       Math.round(lm.y * h)
     ]);
   }
@@ -395,17 +393,8 @@ async function captureAndInfer() {
     canvas.width  = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
-    // Flip horizontally ONLY for front camera — model was trained on mirrored
-    // front-camera frames.  Back camera is already in the correct orientation.
-    if (facingMode === "user") {
-      ctx.save();
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-      ctx.drawImage(video, 0, 0);
-      ctx.restore();
-    } else {
-      ctx.drawImage(video, 0, 0);
-    }
+    // Draw the frame as captured; server runs dual-orientation static prediction.
+    ctx.drawImage(video, 0, 0);
 
     _inferInFlight = true;
     canvas.toBlob(async (blob) => {

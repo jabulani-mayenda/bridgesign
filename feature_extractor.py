@@ -66,3 +66,10 @@ class FeatureExtractor:
 
         # Keep the live feature vector identical to the saved training data.
         return pts.flatten()
+
+    @staticmethod
+    def flip_x(features):
+        """Mirror hand pose on X (matches horizontally flipped camera frames)."""
+        flipped = np.asarray(features, dtype=np.float32).copy()
+        flipped[0::2] *= -1.0
+        return flipped
