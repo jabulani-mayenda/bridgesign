@@ -1,6 +1,5 @@
 import threading
 import time
-import cv2
 import json
 import os
 import re
@@ -14,18 +13,8 @@ from flask_sock import Sock
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import generate_password_hash, check_password_hash
 import config
-from hand_detector import HandDetector
-from feature_extractor import FeatureExtractor
-from classifier import Classifier
-from gesture_feature_extractor import GestureFeatureExtractor
-from gesture_classifier import GestureClassifier
-from image_translator import ImageTranslator
 from session_tracker import SessionTracker
 from emergency_phrases import EmergencyPhrases
-from pose_detector import PoseDetector
-from learning_mode import LearningMode
-from word_assembler import WordAssembler
-from sign_text_processor import process_speech_gloss, process_speech, get_summary
 from call_room import room_manager
 
 app = Flask(__name__)
@@ -139,6 +128,12 @@ def _load_inference_modules():
 
         _inference_status.update({"ready": False, "loading": True, "error": ""})
         try:
+            from hand_detector import HandDetector
+            from feature_extractor import FeatureExtractor
+            from classifier import Classifier
+            from gesture_classifier import GestureClassifier
+            from pose_detector import PoseDetector
+
             print("[BridgeSign] Loading inference modules...")
             _detector           = HandDetector()
             _motion_detector    = HandDetector(max_hands=2, detection_con=0.55, track_con=0.45)
@@ -228,7 +223,7 @@ if os.environ.get("BRIDGESIGN_WARM_INFERENCE", "1") == "1":
 tts       = None  # Browser speech synthesis handles speaking in the web UI.
 tracker   = SessionTracker()
 emergency = EmergencyPhrases()
-learning  = LearningMode()
+learning  = None
 
 # ── Per-user inference session state ─────────────────────────────
 # Each user gets their own pipeline state so multiple users don't interfere.
@@ -239,6 +234,9 @@ def _get_inference_session(username):
     """Return (or create) the per-user ML pipeline state dict."""
     with _inf_lock:
         if username not in _inference_sessions:
+            from gesture_feature_extractor import GestureFeatureExtractor
+            from word_assembler import WordAssembler
+
             _inference_sessions[username] = {
                 "gesture_ext":            GestureFeatureExtractor(),
                 "assembler":              WordAssembler(),
@@ -448,6 +446,8 @@ def _decode_posted_frame():
     f = request.files.get("frame")
     if f is None:
         return None, "No frame"
+
+    import cv2
 
     img_bytes = f.read()
     nparr = np.frombuffer(img_bytes, np.uint8)
@@ -911,6 +911,8 @@ def stt_receive_text():
     if not text:
         return jsonify({"guidance": [], "history": []}), 200
 
+    from sign_text_processor import process_speech_gloss
+
     gloss_str, guidance = process_speech_gloss(text)
     username = session["username"]
     s = _get_inference_session(username)
@@ -1039,6 +1041,7 @@ def translate_image():
     f = request.files["image"]
     path = os.path.join(config.DATA_DIR, "upload_tmp.jpg")
     f.save(path)
+    from image_translator import ImageTranslator
     label, conf, _ = ImageTranslator().translate(path)
     tracker.log_translation(label, conf, "image")
     return jsonify({"label": label, "confidence": f"{conf:.0%}"})
@@ -1046,6 +1049,10 @@ def translate_image():
 @app.route("/api/learn/lesson")
 @login_required
 def get_lesson():
+    global learning
+    if learning is None:
+        from learning_mode import LearningMode
+        learning = LearningMode()
     sign = request.args.get("sign", "Hello")
     return jsonify({"sign": sign, "tip": learning.get_lesson(sign)})
 

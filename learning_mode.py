@@ -1,10 +1,8 @@
-import cv2
 import config
-from hand_detector import HandDetector
 
 class LearningMode:
     def __init__(self):
-        self.detector = HandDetector()
+        self.detector = None
         # Predefined correct landmark states for basic signs (concept)
         # In a real app this would load recorded templates
         self.library = {
@@ -17,15 +15,24 @@ class LearningMode:
     def get_lesson(self, sign):
         return self.library.get(sign, "Lesson not found.")
 
+    def _get_detector(self):
+        if self.detector is None:
+            from hand_detector import HandDetector
+            self.detector = HandDetector()
+        return self.detector
+
     def evaluate_sign(self, frame, target_sign):
         """
         Process the frame and evaluate if the user is making 
         the target sign correctly. 
         Returns (Frame, Feedback String)
         """
+        import cv2
+
         result_img = frame.copy()
-        result_img, _ = self.detector.find_hands(result_img, draw=True)
-        lm_list = self.detector.get_landmarks(result_img)
+        detector = self._get_detector()
+        result_img, _ = detector.find_hands(result_img, draw=True)
+        lm_list = detector.get_landmarks(result_img)
         
         if not lm_list:
             return result_img, "No hand detected. Raise your hand."
