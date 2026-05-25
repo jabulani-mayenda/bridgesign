@@ -20,6 +20,18 @@ from call_room import room_manager
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "bridgesign_secret_key_2024")
 app.config["JSON_SORT_KEYS"] = False
+
+# ── Session cookie config for cloud deployment ────────────────────────
+# Behind a reverse proxy (Render, Railway) the app must trust forwarded
+# headers so Flask knows the request is HTTPS and sets cookies correctly.
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+_is_cloud = os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT")
+if _is_cloud:
+    app.config["SESSION_COOKIE_SECURE"] = True
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 CORS(app)
 sock = Sock(app)
 

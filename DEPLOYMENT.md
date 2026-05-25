@@ -6,6 +6,21 @@ Camera and microphone access require HTTPS on phones. A plain LAN URL such as `h
 
 The call module also uses WebSockets for signaling, so deploy as a dynamic web service, not a static site.
 
+## Railway Deployment
+
+1. Push this project to a GitHub repository.
+2. Go to [railway.com](https://railway.app) and create a new project from that repository.
+3. Railway will auto-detect the `Dockerfile` and `railway.json`.
+4. In your Railway service settings, add these environment variables:
+   - `SECRET_KEY` — set to a random string
+   - `BRIDGESIGN_HOST` = `0.0.0.0`
+   - `BRIDGESIGN_WARM_INFERENCE` = `0`
+   - `BRIDGESIGN_DATA_DIR` = `/tmp/bridgesign-data`
+   - `RAILWAY_ENVIRONMENT` = `production`
+5. Railway auto-assigns `PORT` — do not set it manually.
+6. Deploy. Railway will build the Docker image and give you a public HTTPS URL.
+7. Open the deployed URL on your phone or browser.
+
 ## Render Web Service
 
 1. Push this project to a GitHub repository.
@@ -23,7 +38,7 @@ If an existing Render service was created with the Python native runtime and Ren
 
 The Render service sets `BRIDGESIGN_WARM_INFERENCE=0` so the web server can pass health checks immediately. MediaPipe and the sign models load lazily the first time a camera inference endpoint receives a frame.
 
-User accounts, custom emergency phrases, session stats, and temporary uploads use `BRIDGESIGN_DATA_DIR`. The Docker/Render default is `/tmp/bridgesign-data`, which is writable but ephemeral. For persistent accounts, add a Render Disk and point `BRIDGESIGN_DATA_DIR` at the disk mount path.
+User accounts, custom emergency phrases, session stats, and temporary uploads use `BRIDGESIGN_DATA_DIR`. The Docker/Render default is `/tmp/bridgesign-data`, which is writable but ephemeral. For persistent accounts, add a Render Disk or Railway Volume and point `BRIDGESIGN_DATA_DIR` at the mount path.
 
 ## Why One Worker
 
@@ -32,3 +47,4 @@ The call room signaling state is currently stored in memory in `call_room.py`. R
 ## Call Module Note
 
 The current WebRTC config uses public STUN only. It should work for many phone and laptop tests, but some mobile networks or strict NATs may need a TURN server later.
+
