@@ -1,5 +1,6 @@
 import threading
 import time
+import hashlib
 import json
 import os
 import re
@@ -7,6 +8,7 @@ import secrets
 import string
 import sys
 import traceback
+from collections import OrderedDict
 import numpy as np
 from flask import Flask, render_template, Response, jsonify, request, session, redirect, url_for
 from flask_cors import CORS
@@ -51,12 +53,16 @@ GESTURE_LSTM_MIN_CONF    = 0.78          # raised from 0.65 — LSTM gesture mod
 GESTURE_DECISION_MARGIN  = 0.20          # raised from 0.12 — bigger gap needed to beat static sign
 GESTURE_COOLDOWN_SEC     = 2.0           # raised from 1.8  — longer pause between gesture emissions
 GESTURE_ONLY_LABELS      = {"J", "Z"}
+GESTURE_WORD_OVERRIDE_CONF = 0.86        # word gestures need a strong read to beat a static letter
+DEBUG_STATIC_TOPK = os.environ.get("BRIDGESIGN_DEBUG_TOPK", "0") == "1"
+LIVE_GESTURES_ENABLED = os.environ.get("BRIDGESIGN_LIVE_GESTURES", "0") == "1"
 
 # Minimum confidence for a static sign to be "locked" (protected from gesture override)
-STATIC_LOCK_CONFIDENCE   = 0.70          # if static sign ≥ this, never let gesture override it
+STATIC_LOCK_CONFIDENCE   = 0.55          # protect usable letter reads from gesture override
+STATIC_MOTION_LETTER_MIN_CONF = 0.65     # J/Z are noisy as static poses; require a stronger read
 
 # Hand plausibility: reject hallucinated detections on non-hand objects
-MIN_HAND_BBOX_AREA_RATIO = 0.004        # hand bbox must be ≥ 0.4% of frame area
+MIN_HAND_BBOX_AREA_RATIO = 0.0015       # tolerate webcam-distance hands; aspect gate still rejects obvious non-hands
 MAX_HAND_BBOX_ASPECT     = 4.0          # bbox aspect ratio can't exceed 4:1 (too thin = not a hand)
 
 # Debug: print pipeline internals every N frames (set 0 to disable)
@@ -143,11 +149,58 @@ _pose_detector      = None
 _extractor          = None
 _classifier         = None
 _gesture_classifier = None
+_image_translator   = None
 _detector_lock      = threading.Lock()
 _motion_detector_lock = threading.Lock()
 _pose_detector_lock = threading.Lock()
+_image_translator_lock = threading.Lock()
 _inference_init_lock = threading.Lock()
 _inference_status = {"ready": False, "loading": False, "error": ""}
+_stt_cache = OrderedDict()
+_stt_cache_lock = threading.Lock()
+_image_result_cache = OrderedDict()
+_image_result_cache_lock = threading.Lock()
+
+
+def _lru_get(cache, key):
+    if key not in cache:
+        return None
+    value = cache.pop(key)
+    cache[key] = value
+    return value
+
+
+def _lru_put(cache, key, value, max_size):
+    cache[key] = value
+    while len(cache) > max_size:
+        cache.popitem(last=False)
+
+
+def _perf_ms(start):
+    return round((time.perf_counter() - start) * 1000, 1)
+
+
+def _maybe_log_perf(label, elapsed_ms, every_n_key):
+    every = int(getattr(config, "PERF_LOG_EVERY_N", 0))
+    if every <= 0:
+        return
+    counter_key = f"_perf_{every_n_key}"
+    value = getattr(_maybe_log_perf, counter_key, 0) + 1
+    setattr(_maybe_log_perf, counter_key, value % every)
+    if value % every == 0:
+        print(f"[Perf] {label}: {elapsed_ms:.1f}ms")
+
+
+def _get_image_translator():
+    """Create the upload-photo translator once; it owns a static IMAGE detector."""
+    global _image_translator
+    if _image_translator is not None:
+        return _image_translator
+    with _image_translator_lock:
+        if _image_translator is None:
+            from image_translator import ImageTranslator
+            _image_translator = ImageTranslator()
+    return _image_translator
 
 
 def _load_inference_modules():
@@ -176,7 +229,11 @@ def _load_inference_modules():
             _pose_detector      = PoseDetector(detection_con=0.5, track_con=0.5)
             _extractor          = FeatureExtractor()
             _classifier         = Classifier()
-            _gesture_classifier = GestureClassifier()
+            if LIVE_GESTURES_ENABLED:
+                _gesture_classifier = GestureClassifier()
+            else:
+                _gesture_classifier = None
+                print("[BridgeSign] Live gesture model disabled for stable alphabet/word recognition.")
             print("[BridgeSign] Modules ready.")
             _run_sanity_check()
             _inference_status.update({"ready": True, "loading": False, "error": ""})
@@ -371,6 +428,39 @@ def _label_unit(label):
     return "letter" if len(clean) == 1 and clean.isalpha() else "word"
 
 
+def _live_gestures_available():
+    return bool(
+        LIVE_GESTURES_ENABLED
+        and _gesture_classifier is not None
+        and _gesture_classifier.is_available()
+    )
+
+
+def _filter_gesture_for_mode(state, label, conf):
+    """
+    Keep gesture recognition from stealing the text stream.
+
+    Letter mode accepts only motion letters (J/Z). Word mode accepts full-word
+    gestures, but not while the user is actively finger-spelling a word.
+    """
+    if not label or label == "STATIC":
+        return "", 0.0
+
+    mode = state.get("mode", "letter")
+    if mode == "letter" and label not in GESTURE_ONLY_LABELS:
+        return "", 0.0
+
+    if (
+        mode == "word"
+        and label not in GESTURE_ONLY_LABELS
+        and state.get("assembler") is not None
+        and state["assembler"].has_pending_letters()
+    ):
+        return "", 0.0
+
+    return label, conf
+
+
 def _predict_static_sign(features):
     """
     Run the alphabet classifier on both orientations (mirrored + raw).
@@ -379,15 +469,22 @@ def _predict_static_sign(features):
     """
     from feature_extractor import FeatureExtractor
 
-    label, conf = _classifier.predict(features)
-    flip_label, flip_conf = _classifier.predict(FeatureExtractor.flip_x(features))
+    if hasattr(_classifier, "predict_many"):
+        (label, conf), (flip_label, flip_conf) = _classifier.predict_many([
+            features,
+            FeatureExtractor.flip_x(features),
+        ])
+    else:
+        label, conf = _classifier.predict(features)
+        flip_label, flip_conf = _classifier.predict(FeatureExtractor.flip_x(features))
     if flip_conf > conf:
         label, conf = flip_label, flip_conf
     if conf < config.MIN_PREDICTION_CONFIDENCE or label in ("", "Unknown", "Error"):
         return "", 0.0
-    # J and Z are motion letters; let the gesture model own them in live use.
-    if label in GESTURE_ONLY_LABELS and _gesture_classifier.is_available():
+    if label in GESTURE_ONLY_LABELS and conf < STATIC_MOTION_LETTER_MIN_CONF:
         return "", 0.0
+    # Do not suppress J/Z here. They can be read by either the static model or
+    # the motion model, and the live decider keeps word gestures separate.
     return label, conf
 
 
@@ -409,9 +506,12 @@ def _clear_live_prediction_state(s):
         s["gesture_ext"].clear()
 
 
-def _update_live_confirmation(s, label_raw, conf, source, now):
+def _update_live_confirmation(s, label_raw, conf, source, now, threshold=None):
     """Advance the per-frame candidate counter and return response metadata."""
-    threshold = int(config.CONSECUTIVE_THRESHOLD)
+    if threshold is None or threshold < 2:
+        threshold = int(config.CONSECUTIVE_THRESHOLD)
+    else:
+        threshold = int(threshold)
     result_key = f"{source}:{label_raw}" if label_raw else ""
     previous_key = s.get("prev_result_key", "")
     previous_confirmed = s.get("last_emitted_key", "")
@@ -556,7 +656,7 @@ def _cache_gesture_candidate(state, label, conf):
 
 def _predict_gesture_candidate(state, motion=None):
     """Run the motion-gesture classifier without mixing it into the static path."""
-    if not _gesture_classifier.is_available() or not state["gesture_ext"].is_ready():
+    if not _live_gestures_available() or not state["gesture_ext"].is_ready():
         _clear_gesture_cache(state)
         return "", 0.0
 
@@ -578,6 +678,9 @@ def _predict_gesture_candidate(state, motion=None):
         g_label, g_conf = _refine_motion_letter_prediction(raw_seq, g_label, g_conf)
         if not g_label or g_label == "STATIC" or g_conf < GESTURE_LSTM_MIN_CONF:
             return _cache_gesture_candidate(state, "", 0.0)
+        g_label, g_conf = _filter_gesture_for_mode(state, g_label, g_conf)
+        if not g_label:
+            return _cache_gesture_candidate(state, "", 0.0)
         return _cache_gesture_candidate(state, g_label, g_conf)
 
     g_feats = state["gesture_ext"].extract_gesture_features()
@@ -586,16 +689,48 @@ def _predict_gesture_candidate(state, motion=None):
     g_label, g_conf = _refine_motion_letter_prediction(raw_seq, g_label, g_conf)
     if not g_label or g_conf < GESTURE_MIN_CONFIDENCE:
         return _cache_gesture_candidate(state, "", 0.0)
+    g_label, g_conf = _filter_gesture_for_mode(state, g_label, g_conf)
+    if not g_label:
+        return _cache_gesture_candidate(state, "", 0.0)
     return _cache_gesture_candidate(state, g_label, g_conf)
 
 
-def _select_live_output(static_label, static_conf, gesture_label, gesture_conf):
+def _select_live_output(
+    static_label,
+    static_conf,
+    gesture_label,
+    gesture_conf,
+    mode="letter",
+    text_pending=False,
+):
     """
     Choose the live result while keeping hand signs and gestures separate.
     A gesture can win even if the static classifier is unsure, but it must
     beat a confident static sign by a small margin to avoid mode crossover.
     """
-    # Confident static letters are never replaced by word gestures (A→GOODBYE).
+    if gesture_label and _label_unit(gesture_label) == "word":
+        if mode == "letter" or text_pending:
+            gesture_label, gesture_conf = "", 0.0
+
+    # In word mode, a deliberate full-word gesture may beat an accidental
+    # static-letter read, but never while letters are already buffered.
+    if (
+        mode == "word"
+        and gesture_label
+        and _label_unit(gesture_label) == "word"
+        and not text_pending
+        and (
+            not static_label
+            or gesture_conf >= max(
+                GESTURE_WORD_OVERRIDE_CONF,
+                static_conf + GESTURE_DECISION_MARGIN,
+            )
+        )
+    ):
+        return gesture_label, gesture_conf, "gesture"
+
+    # Confident static letters are never replaced outside that deliberate
+    # word-mode path (protects A→GOODBYE/B→SORRY style mistakes).
     if (
         static_label
         and _label_unit(static_label) == "letter"
@@ -606,7 +741,7 @@ def _select_live_output(static_label, static_conf, gesture_label, gesture_conf):
     if gesture_label:
         gesture_wins = not static_label
         if static_label:
-            if _gesture_classifier.is_lstm():
+            if _gesture_classifier and _gesture_classifier.is_lstm():
                 gesture_wins = gesture_conf >= max(
                     GESTURE_LSTM_MIN_CONF,
                     static_conf + GESTURE_DECISION_MARGIN,
@@ -835,6 +970,7 @@ def infer_frame():
     one frame every ~100 ms (≈10 fps). This replaces the old MJPEG stream
     + background camera thread entirely.
     """
+    started_perf = time.perf_counter()
     username = session["username"]
     s = _get_inference_session(username)
     s["frame_count"] = s.get("frame_count", 0) + 1
@@ -843,6 +979,18 @@ def infer_frame():
     frame, decode_error = _decode_posted_frame()
     if decode_error == "No frame":
         return jsonify({"error": decode_error}), 400
+
+    threshold = None
+    if "consecutive_threshold" in request.form:
+        try:
+            threshold = int(request.form["consecutive_threshold"])
+        except (ValueError, TypeError):
+            pass
+    elif "consecutive_threshold" in request.args:
+        try:
+            threshold = int(request.args.get("consecutive_threshold"))
+        except (ValueError, TypeError):
+            pass
 
     empty_response = {
         "hand_state": "no_hand", "label": "", "confidence": 0.0,
@@ -856,7 +1004,7 @@ def infer_frame():
         "frame_count": s.get("frame_count", 0),
         "tracked_count": s.get("tracked_count", 0),
         "consecutive": s.get("consecutive", 0),
-        "consecutive_threshold": config.CONSECUTIVE_THRESHOLD,
+        "consecutive_threshold": threshold or config.CONSECUTIVE_THRESHOLD,
         "low_confidence_ms": 0,
         "debug_decision": "no_hand",
         "landmark_count": 0,
@@ -864,6 +1012,7 @@ def infer_frame():
         "hand_bbox": None,
     }
     if frame is None:
+        empty_response["server_timing_ms"] = _perf_ms(started_perf)
         return jsonify(empty_response)
 
     _load_inference_modules()
@@ -925,37 +1074,46 @@ def infer_frame():
         if lm_list:
             features = _extractor.extract_features(lm_list)
             if features is not None:
-                prev_features = s.get("prev_features")
-                if prev_features is not None:
-                    frame_motion = float(np.sum(np.abs(np.asarray(features) - np.asarray(prev_features))))
-                s["prev_features"] = np.asarray(features).copy()
-                s["gesture_ext"].push_frame(features)
-                motion_magnitude = s["gesture_ext"].get_motion_magnitude()
-                active_motion = (
-                    motion_magnitude > GESTURE_STATIC_SUPPRESS_THRESHOLD
-                    or frame_motion > GESTURE_FRAME_MOTION_THRESHOLD
-                )
-                if active_motion:
-                    tracking_parts = ["hand", "motion"]
-                static_top = _predict_static_topk(features)
+                if LIVE_GESTURES_ENABLED:
+                    prev_features = s.get("prev_features")
+                    if prev_features is not None:
+                        frame_motion = float(np.sum(np.abs(np.asarray(features) - np.asarray(prev_features))))
+                    s["prev_features"] = np.asarray(features).copy()
+                    s["gesture_ext"].push_frame(features)
+                    motion_magnitude = s["gesture_ext"].get_motion_magnitude()
+                    active_motion = (
+                        motion_magnitude > GESTURE_STATIC_SUPPRESS_THRESHOLD
+                        or frame_motion > GESTURE_FRAME_MOTION_THRESHOLD
+                    )
+                    if active_motion:
+                        tracking_parts = ["hand", "motion"]
+                else:
+                    s["prev_features"] = None
+                if DEBUG_STATIC_TOPK:
+                    static_top = _predict_static_topk(features)
                 static_label, static_conf = _predict_static_sign(features)
                 letter_mode = s.get("mode", "letter") == "letter"
                 if letter_mode:
-                    # Letter mode: alphabet only — never let word gestures block A–Z.
-                    gesture_label, gesture_conf = "", 0.0
+                    # Letter mode: alphabet signs plus motion letters only.
+                    # Full-word gestures are filtered out by _filter_gesture_for_mode().
+                    if now > s["gesture_cooldown_until"]:
+                        gesture_label, gesture_conf = _predict_gesture_candidate(s, motion_magnitude)
                     label_raw, conf, source = (
-                        (static_label, static_conf, "handsign")
+                        _select_live_output(
+                            static_label,
+                            static_conf,
+                            gesture_label,
+                            gesture_conf,
+                            mode=s.get("mode", "letter"),
+                            text_pending=s["assembler"].has_pending_letters(),
+                        )
                         if static_label
-                        else ("", 0.0, "")
+                        else ((gesture_label, gesture_conf, "gesture") if gesture_label else ("", 0.0, ""))
                     )
                 else:
-                    if (
-                        active_motion
-                        and _gesture_classifier.is_available()
-                        and _label_unit(static_label) == "letter"
-                        and static_conf < STATIC_LOCK_CONFIDENCE
-                    ):
-                        static_label, static_conf = "", 0.0
+                    # Do not erase a letter candidate just because the hand is moving.
+                    # Natural hand tremor or repositioning can look like motion and
+                    # cause gesture words to steal alphabet signs.
                     if now > s["gesture_cooldown_until"]:
                         gesture_label, gesture_conf = _predict_gesture_candidate(s, motion_magnitude)
                     label_raw, conf, source = _select_live_output(
@@ -963,9 +1121,11 @@ def infer_frame():
                         static_conf,
                         gesture_label,
                         gesture_conf,
+                        mode=s.get("mode", "letter"),
+                        text_pending=s["assembler"].has_pending_letters(),
                     )
 
-                decision = _update_live_confirmation(s, label_raw, conf, source, now)
+                decision = _update_live_confirmation(s, label_raw, conf, source, now, threshold=threshold)
                 hand_state = decision["hand_state"]
                 confirmed_label = decision["confirmed_label"]
                 confirmed_conf = decision["confirmed_conf"]
@@ -976,7 +1136,7 @@ def infer_frame():
                 low_confidence_ms = decision["low_confidence_ms"]
                 debug_decision = decision["debug_decision"]
 
-                if confirmed_label and decision["consecutive"] == config.CONSECUTIVE_THRESHOLD:
+                if confirmed_label and decision["consecutive"] == decision["threshold"]:
                     tracker.log_translation(
                         confirmed_label,
                         conf,
@@ -993,8 +1153,7 @@ def infer_frame():
         _clear_live_prediction_state(s)
 
     # ── Word assembler tick ───────────────────────────────────────
-    grace_present = hand_detected or (now - s["last_hand_ts"]) < config.HAND_LOST_GRACE_SEC
-    asm = s["assembler"].tick(hand_present=grace_present)
+    asm = s["assembler"].tick(hand_present=hand_detected)
 
     # ── Optional debug logging ────────────────────────────────────
     if _DEBUG_EVERY_N > 0:
@@ -1006,6 +1165,8 @@ def infer_frame():
                   f"| motion={motion_magnitude:.2f}/{frame_motion:.2f} "
                   f"| consec={s['consecutive']} | key={s['prev_result_key']!r}")
 
+    elapsed_ms = _perf_ms(started_perf)
+    _maybe_log_perf("infer_frame", elapsed_ms, "infer_frame")
     return jsonify({
         "hand_state":         hand_state,
         "label":              confirmed_label,
@@ -1030,12 +1191,13 @@ def infer_frame():
         "frame_count":        s.get("frame_count", 0),
         "tracked_count":      s.get("tracked_count", 0),
         "consecutive":        s.get("consecutive", 0),
-        "consecutive_threshold": config.CONSECUTIVE_THRESHOLD,
+        "consecutive_threshold": decision["threshold"] if (hand_detected and 'decision' in locals() and decision) else (threshold or config.CONSECUTIVE_THRESHOLD),
         "low_confidence_ms":  low_confidence_ms,
         "debug_decision":     debug_decision,
         "landmark_count":     landmark_count,
         "tracking_parts":     tracking_parts,
         "hand_bbox":          hand_bbox,
+        "server_timing_ms":   elapsed_ms,
     })
 
 
@@ -1051,12 +1213,24 @@ def infer_landmarks():
         "landmarks": [[id, cx, cy], ...]
     }
     """
+    started_perf = time.perf_counter()
     username = session["username"]
     s = _get_inference_session(username)
     s["frame_count"] = s.get("frame_count", 0) + 1
 
     data = request.get_json() or {}
     lm_list = data.get("landmarks")
+    threshold = None
+    if "consecutive_threshold" in data:
+        try:
+            threshold = int(data["consecutive_threshold"])
+        except (ValueError, TypeError):
+            pass
+    elif "consecutive_threshold" in request.args:
+        try:
+            threshold = int(request.args.get("consecutive_threshold"))
+        except (ValueError, TypeError):
+            pass
 
     empty_response = {
         "hand_state": "no_hand", "label": "", "confidence": 0.0,
@@ -1069,6 +1243,7 @@ def infer_landmarks():
         "frame_count": s.get("frame_count", 0),
         "tracked_count": s.get("tracked_count", 0),
         "consecutive": s.get("consecutive", 0),
+        "consecutive_threshold": threshold or config.CONSECUTIVE_THRESHOLD,
         "landmark_count": 0,
         "tracking_parts": [],
         "hand_bbox": None,
@@ -1081,14 +1256,14 @@ def infer_landmarks():
 
         # Word assembler tick
         now = time.time()
-        grace_present = (now - s.get("last_hand_ts", 0.0)) < config.HAND_LOST_GRACE_SEC
-        asm = s["assembler"].tick(hand_present=grace_present)
+        asm = s["assembler"].tick(hand_present=False)
 
         empty_response["word_buffer"] = asm["word_buffer"] if s["mode"] == "word" else ""
         empty_response["last_word"] = asm["last_word"] if s["mode"] == "word" else ""
         empty_response["sentence"] = asm["sentence"] if s["mode"] == "word" else ""
         empty_response["completed_sentence"] = (asm["completed_sentence"] or "") if s["mode"] == "word" else ""
         empty_response["completed_word"] = (asm["completed_word"] or "") if s["mode"] == "word" else ""
+        empty_response["server_timing_ms"] = _perf_ms(started_perf)
         return jsonify(empty_response)
 
     _load_inference_modules()
@@ -1130,36 +1305,44 @@ def infer_landmarks():
 
     features = _extractor.extract_features(lm_list)
     if features is not None:
-        prev_features = s.get("prev_features")
-        if prev_features is not None:
-            frame_motion = float(np.sum(np.abs(np.asarray(features) - np.asarray(prev_features))))
-        s["prev_features"] = np.asarray(features).copy()
-        s["gesture_ext"].push_frame(features)
-        motion_magnitude = s["gesture_ext"].get_motion_magnitude()
-        active_motion = (
-            motion_magnitude > GESTURE_STATIC_SUPPRESS_THRESHOLD
-            or frame_motion > GESTURE_FRAME_MOTION_THRESHOLD
-        )
-        if active_motion:
-            tracking_parts = ["hand", "motion"]
-        static_top = _predict_static_topk(features)
+        if LIVE_GESTURES_ENABLED:
+            prev_features = s.get("prev_features")
+            if prev_features is not None:
+                frame_motion = float(np.sum(np.abs(np.asarray(features) - np.asarray(prev_features))))
+            s["prev_features"] = np.asarray(features).copy()
+            s["gesture_ext"].push_frame(features)
+            motion_magnitude = s["gesture_ext"].get_motion_magnitude()
+            active_motion = (
+                motion_magnitude > GESTURE_STATIC_SUPPRESS_THRESHOLD
+                or frame_motion > GESTURE_FRAME_MOTION_THRESHOLD
+            )
+            if active_motion:
+                tracking_parts = ["hand", "motion"]
+        else:
+            s["prev_features"] = None
+        if DEBUG_STATIC_TOPK:
+            static_top = _predict_static_topk(features)
         static_label, static_conf = _predict_static_sign(features)
         letter_mode = s.get("mode", "letter") == "letter"
         if letter_mode:
-            gesture_label, gesture_conf = "", 0.0
+            if now > s["gesture_cooldown_until"]:
+                gesture_label, gesture_conf = _predict_gesture_candidate(s, motion_magnitude)
             label_raw, conf, source = (
-                (static_label, static_conf, "handsign")
+                _select_live_output(
+                    static_label,
+                    static_conf,
+                    gesture_label,
+                    gesture_conf,
+                    mode=s.get("mode", "letter"),
+                    text_pending=s["assembler"].has_pending_letters(),
+                )
                 if static_label
-                else ("", 0.0, "")
+                else ((gesture_label, gesture_conf, "gesture") if gesture_label else ("", 0.0, ""))
             )
         else:
-            if (
-                active_motion
-                and _gesture_classifier.is_available()
-                and _label_unit(static_label) == "letter"
-                and static_conf < STATIC_LOCK_CONFIDENCE
-            ):
-                static_label, static_conf = "", 0.0
+            # Do not erase a letter candidate just because the hand is moving.
+            # Natural hand tremor or repositioning can look like motion and
+            # cause gesture words to steal alphabet signs.
             if now > s["gesture_cooldown_until"]:
                 gesture_label, gesture_conf = _predict_gesture_candidate(s, motion_magnitude)
             label_raw, conf, source = _select_live_output(
@@ -1167,9 +1350,11 @@ def infer_landmarks():
                 static_conf,
                 gesture_label,
                 gesture_conf,
+                mode=s.get("mode", "letter"),
+                text_pending=s["assembler"].has_pending_letters(),
             )
 
-        decision = _update_live_confirmation(s, label_raw, conf, source, now)
+        decision = _update_live_confirmation(s, label_raw, conf, source, now, threshold=threshold)
         hand_state = decision["hand_state"]
         confirmed_label = decision["confirmed_label"]
         confirmed_conf = decision["confirmed_conf"]
@@ -1180,7 +1365,7 @@ def infer_landmarks():
         low_confidence_ms = decision["low_confidence_ms"]
         debug_decision = decision["debug_decision"]
 
-        if confirmed_label and decision["consecutive"] == config.CONSECUTIVE_THRESHOLD:
+        if confirmed_label and decision["consecutive"] == decision["threshold"]:
             tracker.log_translation(
                 confirmed_label,
                 conf,
@@ -1197,6 +1382,8 @@ def infer_landmarks():
     # ── Word assembler tick ───────────────────────────────────────
     asm = s["assembler"].tick(hand_present=True)
 
+    elapsed_ms = _perf_ms(started_perf)
+    _maybe_log_perf("infer_landmarks", elapsed_ms, "infer_landmarks")
     return jsonify({
         "hand_state":         hand_state,
         "label":              confirmed_label,
@@ -1221,12 +1408,13 @@ def infer_landmarks():
         "frame_count":        s.get("frame_count", 0),
         "tracked_count":      s.get("tracked_count", 0),
         "consecutive":        s.get("consecutive", 0),
-        "consecutive_threshold": config.CONSECUTIVE_THRESHOLD,
+        "consecutive_threshold": decision["threshold"] if ('decision' in locals() and decision) else (threshold or config.CONSECUTIVE_THRESHOLD),
         "low_confidence_ms":  low_confidence_ms,
         "debug_decision":     debug_decision,
         "landmark_count":     landmark_count,
         "tracking_parts":     tracking_parts,
         "hand_bbox":          hand_bbox,
+        "server_timing_ms":   elapsed_ms,
     })
 
 
@@ -1323,6 +1511,58 @@ def assembler_flush():
         "completed_sentence": asm["completed_sentence"] or "",
     })
 
+
+@app.route("/api/assembler/undo", methods=["POST"])
+@login_required
+def assembler_undo():
+    username = session["username"]
+    s = _get_inference_session(username)
+    removed = s["assembler"].undo_last_word()
+    asm = s["assembler"].tick(hand_present=False)
+    return jsonify({
+        "ok": True,
+        "removed_word": removed,
+        "word_buffer": asm["word_buffer"],
+        "last_word": asm["last_word"],
+        "sentence": asm["sentence"],
+        "completed_word": "",
+        "completed_sentence": "",
+    })
+
+
+@app.route("/api/assembler/clear-word", methods=["POST"])
+@login_required
+def assembler_clear_word():
+    username = session["username"]
+    s = _get_inference_session(username)
+    s["assembler"].clear_current_word()
+    asm = s["assembler"].tick(hand_present=False)
+    return jsonify({
+        "ok": True,
+        "word_buffer": asm["word_buffer"],
+        "last_word": asm["last_word"],
+        "sentence": asm["sentence"],
+        "completed_word": "",
+        "completed_sentence": "",
+    })
+
+
+@app.route("/api/assembler/demo-intro", methods=["POST"])
+@login_required
+def assembler_demo_intro():
+    username = session["username"]
+    s = _get_inference_session(username)
+    sentence = s["assembler"].set_phrase("HI MY NAME IS BENSON")
+    asm = s["assembler"].tick(hand_present=False)
+    return jsonify({
+        "ok": True,
+        "word_buffer": asm["word_buffer"],
+        "last_word": asm["last_word"],
+        "sentence": asm["sentence"] or sentence,
+        "completed_word": "",
+        "completed_sentence": "",
+    })
+
 # ── Mode toggle ───────────────────────────────────────────────────
 @app.route("/api/mode", methods=["POST"])
 @login_required
@@ -1354,15 +1594,32 @@ def stt_receive_text():
     if not text:
         return jsonify({"guidance": [], "history": []}), 200
 
-    from sign_text_processor import process_speech_gloss
+    cache_key = re.sub(r"\s+", " ", text.lower()).strip()
+    with _stt_cache_lock:
+        cached = _lru_get(_stt_cache, cache_key)
 
-    gloss_str, guidance = process_speech_gloss(text)
+    if cached is None:
+        started_perf = time.perf_counter()
+        from sign_text_processor import process_speech_gloss
+        gloss_str, guidance = process_speech_gloss(text)
+        cached = {
+            "guidance": guidance,
+            "gloss_order": gloss_str,
+            "server_timing_ms": _perf_ms(started_perf),
+            "cache": "miss",
+        }
+        with _stt_cache_lock:
+            _lru_put(_stt_cache, cache_key, cached, int(getattr(config, "STT_CACHE_SIZE", 128)))
+    else:
+        cached = dict(cached)
+        cached["cache"] = "hit"
+
     username = session["username"]
     s = _get_inference_session(username)
     entry = {
         "text":     text,
-        "gloss_order": gloss_str,
-        "guidance": guidance,
+        "gloss_order": cached["gloss_order"],
+        "guidance": cached["guidance"],
         "ts":       time.strftime("%H:%M:%S"),
     }
     with _inf_lock:
@@ -1370,7 +1627,13 @@ def stt_receive_text():
         s["stt_history"] = s["stt_history"][:20]
         history_snapshot = s["stt_history"][:10]
 
-    return jsonify({"guidance": guidance, "gloss_order": gloss_str, "history": history_snapshot})
+    return jsonify({
+        "guidance": cached["guidance"],
+        "gloss_order": cached["gloss_order"],
+        "history": history_snapshot,
+        "cache": cached["cache"],
+        "server_timing_ms": cached.get("server_timing_ms", 0.0),
+    })
 
 @app.route("/api/avatar/animations")
 @login_required
@@ -1479,25 +1742,91 @@ def get_stats():
 @app.route("/api/translate_image", methods=["POST"])
 @login_required
 def translate_image():
+    started_perf = time.perf_counter()
     if "image" not in request.files:
         return jsonify({"error": "No image"}), 400
     f = request.files["image"]
-    path = os.path.join(config.DATA_DIR, "upload_tmp.jpg")
-    f.save(path)
-    from image_translator import ImageTranslator
-    label, conf, _ = ImageTranslator().translate(path)
+    img_bytes = f.read()
+    if not img_bytes:
+        return jsonify({"error": "Empty image"}), 400
+
+    image_hash = hashlib.sha256(img_bytes).hexdigest()
+    with _image_result_cache_lock:
+        cached = _lru_get(_image_result_cache, image_hash)
+    if cached is not None:
+        payload = dict(cached)
+        payload["cache"] = "hit"
+        payload["server_timing_ms"] = _perf_ms(started_perf)
+        if payload.get("label") and not payload.get("no_hand") and not payload.get("low_confidence"):
+            tracker.log_translation(payload["label"], payload.get("_confidence_float", 0.0), "image_cache")
+        payload.pop("_confidence_float", None)
+        return jsonify(payload)
+
+    safe_user = re.sub(r"[^A-Za-z0-9_-]", "_", session.get("username", "user"))
+    path = os.path.join(config.DATA_DIR, f"upload_{safe_user}_{image_hash[:12]}.jpg")
+    with open(path, "wb") as out:
+        out.write(img_bytes)
+    label, conf, _ = _get_image_translator().translate(path)
 
     # Explicit rejection when no hand is detected
     if not label or label == "No hand detected" or conf == 0.0:
-        return jsonify({
+        payload = {
             "label": "",
             "confidence": "0%",
             "no_hand": True,
-            "error": "No hand detected. Please upload a clear photo of a hand sign."
-        })
+            "error": "No hand detected. Please upload a clear photo of a hand sign.",
+            "cache": "miss",
+            "server_timing_ms": _perf_ms(started_perf),
+            "_confidence_float": 0.0,
+        }
+        with _image_result_cache_lock:
+            _lru_put(
+                _image_result_cache,
+                image_hash,
+                dict(payload),
+                int(getattr(config, "IMAGE_TRANSLATION_CACHE_SIZE", 64)),
+            )
+        payload.pop("_confidence_float", None)
+        return jsonify(payload)
+    if conf < config.MIN_PREDICTION_CONFIDENCE or label in ("Unknown", "Error"):
+        payload = {
+            "label": "",
+            "confidence": f"{conf:.0%}",
+            "no_hand": False,
+            "low_confidence": True,
+            "error": "Hand detected, but the sign was not clear enough to translate. Try brighter light, a plain background, and keep the whole hand in frame.",
+            "cache": "miss",
+            "server_timing_ms": _perf_ms(started_perf),
+            "_confidence_float": float(conf),
+        }
+        with _image_result_cache_lock:
+            _lru_put(
+                _image_result_cache,
+                image_hash,
+                dict(payload),
+                int(getattr(config, "IMAGE_TRANSLATION_CACHE_SIZE", 64)),
+            )
+        payload.pop("_confidence_float", None)
+        return jsonify(payload)
 
     tracker.log_translation(label, conf, "image")
-    return jsonify({"label": label, "confidence": f"{conf:.0%}", "no_hand": False})
+    payload = {
+        "label": label,
+        "confidence": f"{conf:.0%}",
+        "no_hand": False,
+        "cache": "miss",
+        "server_timing_ms": _perf_ms(started_perf),
+        "_confidence_float": float(conf),
+    }
+    with _image_result_cache_lock:
+        _lru_put(
+            _image_result_cache,
+            image_hash,
+            dict(payload),
+            int(getattr(config, "IMAGE_TRANSLATION_CACHE_SIZE", 64)),
+        )
+    payload.pop("_confidence_float", None)
+    return jsonify(payload)
 
 @app.route("/api/learn/lesson")
 @login_required

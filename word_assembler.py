@@ -63,12 +63,39 @@ DANGER EMERGENCY HAPPY SAD ANGRY SCARED TIRED WHERE WHAT WHEN WHO HOW WHY LEFT
 RIGHT COME GO HELLO GOODBYE MORNING NIGHT FOOD DRINK TOILET NEED WANT UNDERSTAND
 AGAIN SLOW SPEAK MORE LESS WAIT HERE THERE TOGETHER ALONE FAMILY FRIEND SCHOOL
 WORK HOME NAME AGE SICK HUNGRY COLD HOT LOVE GOOD BAD BEAUTIFUL
+BENSON
 """.lower().split())
 
-BOUNDARY_SECONDS   = 0.55  # seconds of no-hand → flush word (shortened for faster response)
-SENTENCE_PAUSE_SEC = 2.5   # seconds of no new word → flush sentence
+WORD_PAUSE_THRESHOLD_MS = 400
+BOUNDARY_SECONDS   = WORD_PAUSE_THRESHOLD_MS / 1000.0
+SENTENCE_PAUSE_SEC = 8.0   # keep completed phrases visible long enough for demos/conversation
 MAX_BUFFER_LEN     = 22    # safeguard: auto-flush if buffer grows too long
 WORD_DEDUP_SEC     = 0.8   # ignore the same gesture word if repeated within this window
+LETTER_DEDUP_SEC   = 0.85  # absorbs held-sign/tracking stutter; doubles are recovered on validation
+
+SIGN_WORD_MAP = {
+    "I": "I",
+    "A": "A",
+    "LOVE": "LOVE",
+    "YOU": "YOU",
+    "ILOVEYOU": "I LOVE YOU",
+    "THANKYOU": "THANK YOU",
+    "THANK YOU": "THANK YOU",
+    "HELLO": "HELLO",
+    "HELP": "HELP",
+    "YES": "YES",
+    "NO": "NO",
+    "PLEASE": "PLEASE",
+    "SORRY": "SORRY",
+    "STOP": "STOP",
+}
+
+PHRASE_DISPLAY_MAP = {
+    "HI MY NAME IS BENSON": "Hi, my name is Benson.",
+    "HELLO MY NAME IS BENSON": "Hi, my name is Benson.",
+    "MY NAME IS BENSON": "My name is Benson.",
+    "I LOVE YOU": "I love you.",
+}
 
 
 class WordAssembler:
@@ -85,13 +112,25 @@ class WordAssembler:
 
     def push_letter(self, letter: str):
         """Call when a letter is confidently recognised."""
-        self._last_hand_ts = time.time()
-        # Only append if different from the last letter (avoid stuttering)
-        if not self._buf or self._buf[-1] != letter.upper():
-            self._buf.append(letter.upper())
-            if len(self._buf) > MAX_BUFFER_LEN:
-                # Buffer overflow → flush immediately
-                self._flush()
+        now = time.time()
+        self._last_hand_ts = now
+        clean = str(letter or "").strip().upper()
+        if not clean:
+            return
+
+        if clean == self._last_letter:
+            elapsed = now - (self._last_letter_ts or 0.0)
+            if elapsed < LETTER_DEDUP_SEC:
+                return
+
+        self._buf.append(clean)
+        self._last_letter = clean
+        self._last_letter_ts = now
+        print(f"[WordModule] Buffered: \"{''.join(self._buf)}\" (pause: false)")
+        if len(self._buf) > MAX_BUFFER_LEN:
+            completed_word = self._flush()
+            if completed_word:
+                self._commit_word(completed_word, now)
 
     def push_word(self, word: str) -> str:
         """
@@ -112,7 +151,7 @@ class WordAssembler:
             if buffered_word:
                 self._commit_word(buffered_word, now)
 
-        normalized = self._normalize_word(word)
+        normalized = self._map_word(self._normalize_word(word))
         if not normalized:
             return ""
 
@@ -154,7 +193,9 @@ class WordAssembler:
                 self.last_word    = completed_word
                 self._last_word_ts = now
                 self._words.append(completed_word)
-                self.sentence     = " ".join(self._words)
+                self.sentence     = self._format_sentence(self._words)
+                print(f"[WordModule] Pause detected ({int((now - self._last_hand_ts) * 1000)}ms) -> confirmed word: \"{completed_word}\"")
+                print(f"[WordModule] Final phrase: \"{self.sentence}\"")
 
         # ── Sentence boundary ──────────────────────────────────────────────
         if (self._words
@@ -182,6 +223,22 @@ class WordAssembler:
         self._last_word_ts = None
         self.last_word     = ""
         self.sentence      = ""
+        self._last_letter = ""
+        self._last_letter_ts = None
+
+    def set_phrase(self, phrase: str) -> str:
+        """Replace the active sentence with a complete display phrase."""
+        words = [self._map_word(part) for part in str(phrase or "").strip().split() if part.strip()]
+        self._buf = []
+        self._words = words
+        self.last_word = words[-1] if words else ""
+        self._last_word_ts = time.time() if words else None
+        self.sentence = self._format_sentence(words)
+        return self.sentence
+
+    def has_pending_letters(self) -> bool:
+        """True while the user is actively building a finger-spelled word."""
+        return bool(self._buf)
 
     # ── Internals ─────────────────────────────────────────────────────────────
 
@@ -207,9 +264,7 @@ class WordAssembler:
         if not self._buf:
             return ""
         raw = "".join(self._buf)
-        if len(raw) == 1:
-            return raw
-        return self._validate(raw)
+        return self._map_word(raw if len(raw) == 1 else self._validate(raw))
 
     def _flush(self) -> str:
         """Assemble and validate the current buffer, then clear it."""
@@ -218,8 +273,8 @@ class WordAssembler:
         if not raw:
             return ""
         if len(raw) == 1:
-            return raw  # single letter (I, A) always valid
-        return self._validate(raw)
+            return self._map_word(raw)
+        return self._map_word(self._validate(raw))
 
     def _commit_word(self, word: str, now: float | None = None):
         """Append a completed word to the sentence state."""
@@ -230,7 +285,38 @@ class WordAssembler:
         self.last_word = word
         self._last_word_ts = now
         self._words.append(word)
-        self.sentence = " ".join(self._words)
+        self.sentence = self._format_sentence(self._words)
+        print(f"[WordModule] Final phrase: \"{self.sentence}\"")
+
+    def undo_last_word(self) -> str:
+        """Remove and return the most recently committed word."""
+        if not self._words:
+            return ""
+        removed = self._words.pop()
+        self.sentence = self._format_sentence(self._words)
+        self.last_word = self._words[-1] if self._words else ""
+        self._last_word_ts = time.time() if self._words else None
+        return removed
+
+    def clear_current_word(self):
+        """Clear the active letter buffer but keep committed phrase words."""
+        self._buf = []
+        self._last_letter = ""
+        self._last_letter_ts = None
+
+    @staticmethod
+    def _map_word(word: str) -> str:
+        clean = str(word or "").replace("_", " ").strip()
+        compact = clean.replace(" ", "").upper()
+        return SIGN_WORD_MAP.get(clean.upper(), SIGN_WORD_MAP.get(compact, clean))
+
+    @staticmethod
+    def _format_sentence(words) -> str:
+        raw = " ".join(str(word or "").strip() for word in words if str(word or "").strip())
+        compact = " ".join(raw.replace("_", " ").upper().split())
+        if compact in PHRASE_DISPLAY_MAP:
+            return PHRASE_DISPLAY_MAP[compact]
+        return raw
 
     @staticmethod
     def _normalize_word(word: str) -> str:

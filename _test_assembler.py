@@ -10,7 +10,7 @@ def flush_word(a):
     return a.tick(hand_present=False)["completed_word"]
 
 def flush_sentence(a):
-    a._last_word_ts = time.time() - 4.0
+    a._last_word_ts = time.time() - 9.0
     return a.tick(hand_present=False)["completed_sentence"]
 
 def check(label, result, expected):
@@ -71,6 +71,12 @@ check("mixed sentence    ", a7.sentence, "HI THANK YOU")
 a8 = WordAssembler()
 check("underscore normal ", a8.push_word("GOODBYE"), "GOODBYE")
 check("space normalise   ", a8.push_word("THANK_YOU"), "THANK YOU")
+
+# Test 9: Presentation intro phrase should display naturally
+a9 = WordAssembler()
+for word in ["HI", "MY", "NAME", "IS", "BENSON"]:
+    a9.push_word(word)
+check("intro sentence   ", a9.sentence, "Hi, my name is Benson.")
 
 print()
 if errors == 0:

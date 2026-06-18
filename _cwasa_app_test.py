@@ -26,7 +26,7 @@ def main():
 
         username = f"cwasa_{int(time.time())}_{random.randint(100, 999)}"
         password = "cwasa-test-123"
-        cdp.call("Page.navigate", {"url": APP_URL + "/register"})
+        cdp.call("Page.navigate", {"url": APP_URL + "/register"}, timeout=30)
         cdp.drain(2)
         register_result = cdp.eval(f"""(() => {{
           document.querySelector('[name=username]').value = {json.dumps(username)};
@@ -36,7 +36,7 @@ def main():
         }})()""")
         cdp.drain(3)
 
-        cdp.call("Page.navigate", {"url": APP_URL + "/login"})
+        cdp.call("Page.navigate", {"url": APP_URL + "/login"}, timeout=30)
         cdp.drain(2)
         login_result = cdp.eval(f"""(() => {{
           document.querySelector('[name=username]').value = {json.dumps(username)};
@@ -44,9 +44,13 @@ def main():
           document.querySelector('form').submit();
           return true;
         }})()""")
-        cdp.drain(4)
-        cdp.call("Page.navigate", {"url": APP_URL + "/"})
-        cdp.drain(3)
+        # Wait for the redirect to complete naturally so cookie is saved
+        for _ in range(10):
+            current_href = cdp.eval("location.href")
+            if current_href == APP_URL + "/" or current_href == APP_URL:
+                break
+            cdp.drain(1)
+        cdp.drain(2)
 
         result = cdp.eval("""new Promise(resolve => {
           const seen = [];
@@ -133,7 +137,10 @@ def main():
         for event in cdp.events:
             text = event_text(event)
             if text:
-                print(text[:1000])
+                try:
+                    print(text[:1000])
+                except UnicodeEncodeError:
+                    print(text[:1000].encode("ascii", "replace").decode("ascii"))
     finally:
         proc.terminate()
         try:

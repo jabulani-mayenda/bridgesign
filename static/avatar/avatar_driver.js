@@ -53,7 +53,7 @@
 
     const note = document.getElementById(noteId);
     if (note) {
-      note.textContent = message || "The 3D avatar is unavailable here, so BridgeSign is showing sign cards instead.";
+      note.textContent = message || "The 3D avatar is unavailable here, so SMART SIGN is showing sign cards instead.";
     }
 
     return stage;
@@ -190,7 +190,7 @@
           console.warn("[AvatarDriver] 3D avatar startup failed:", err);
           const driver = createFallbackDriver(
             containerId,
-            "3D avatar could not start on this browser, so BridgeSign switched to sign cards.",
+            "3D avatar could not start on this browser, so SMART SIGN switched to sign cards.",
             options
           );
           driver._bridgeSignAvatarContainer = containerId;
@@ -207,7 +207,7 @@
       console.warn("[AvatarDriver] Avatar module did not load in time; using fallback.");
       const driver = createFallbackDriver(
         containerId,
-        "3D avatar files did not load in time, so BridgeSign switched to sign cards.",
+        "3D avatar files did not load in time, so SMART SIGN switched to sign cards.",
         options
       );
       driver._bridgeSignAvatarContainer = containerId;

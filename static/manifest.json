@@ -1,6 +1,6 @@
 {
-  "name": "BridgeSign",
-  "short_name": "BridgeSign",
+  "name": "SMART SIGN",
+  "short_name": "SMART SIGN",
   "description": "Real-time sign language translator",
   "start_url": "/",
   "display": "standalone",

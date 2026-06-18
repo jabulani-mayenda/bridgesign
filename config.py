@@ -10,8 +10,8 @@ APP_VERSION = "1.0.0"
 
 # Camera Settings
 CAMERA_INDEX = 0
-INFER_EVERY_N_FRAMES = 2   # Every 2nd frame (~15 detections/sec) — balances speed vs CPU
-CONSECUTIVE_THRESHOLD = 2  # Confirm after 2 matching frames for snappy detection
+INFER_EVERY_N_FRAMES = int(os.environ.get("BRIDGESIGN_INFER_EVERY_N_FRAMES", 2))
+CONSECUTIVE_THRESHOLD = int(os.environ.get("BRIDGESIGN_CONSECUTIVE_THRESHOLD", 2))
 JPEG_QUALITY = 70          # Lower = faster stream
 CAMERA_MAX_INDEX = 4
 FRAME_WIDTH = 640
@@ -25,8 +25,8 @@ FPS = 30
 HAND_LOST_GRACE_SEC = 0.5  # 0.5 s feels instant but covers a hand-swap
 
 # MediaPipe Settings
-MIN_DETECTION_CONFIDENCE = 0.6    # Raised from 0.5 to 0.6: reduces false hand detections on non-hand objects while keeping real hands detectable
-MIN_TRACKING_CONFIDENCE  = 0.5
+MIN_DETECTION_CONFIDENCE = 0.45   # Keep live detection tolerant; plausibility gate filters obvious non-hands
+MIN_TRACKING_CONFIDENCE  = 0.45
 MAX_NUM_HANDS            = 1    # Single hand = half the MediaPipe work
 
 # Classifier confidence gate
@@ -36,6 +36,16 @@ MAX_NUM_HANDS            = 1    # Single hand = half the MediaPipe work
 # The consecutive-frame filter (CONSECUTIVE_THRESHOLD) provides the real
 # false-positive protection, so keep this gate low.
 MIN_PREDICTION_CONFIDENCE = 0.25  # raised from 0.15 — fewer false positives, better live accuracy
+
+# Performance Settings
+LIVE_CLIENT_MAX_DIM = int(os.environ.get("BRIDGESIGN_LIVE_CLIENT_MAX_DIM", 320))
+LIVE_FRAME_SKIP = int(os.environ.get("BRIDGESIGN_LIVE_FRAME_SKIP", 1))
+CLASSIFIER_CACHE_SIZE = int(os.environ.get("BRIDGESIGN_CLASSIFIER_CACHE_SIZE", 2048))
+CLASSIFIER_CACHE_DECIMALS = int(os.environ.get("BRIDGESIGN_CLASSIFIER_CACHE_DECIMALS", 2))
+IMAGE_MAX_DIM = int(os.environ.get("BRIDGESIGN_IMAGE_MAX_DIM", 768))
+IMAGE_TRANSLATION_CACHE_SIZE = int(os.environ.get("BRIDGESIGN_IMAGE_CACHE_SIZE", 64))
+STT_CACHE_SIZE = int(os.environ.get("BRIDGESIGN_STT_CACHE_SIZE", 128))
+PERF_LOG_EVERY_N = int(os.environ.get("BRIDGESIGN_PERF_LOG_EVERY_N", 60))
 
 # Path Constants
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

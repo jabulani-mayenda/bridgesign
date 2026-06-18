@@ -8,6 +8,7 @@ the application doesn't need to know about the underlying model type.
 import os
 import json
 import pickle
+from collections import OrderedDict
 import numpy as np
 import config
 
@@ -17,6 +18,9 @@ class Classifier:
         self.pipeline   = None
         self.categories = {}   # {0: 'A', 1: 'B', …}
         self.n_features_in_ = None
+        self._predict_cache = OrderedDict()
+        self._cache_size = int(getattr(config, "CLASSIFIER_CACHE_SIZE", 2048))
+        self._cache_decimals = int(getattr(config, "CLASSIFIER_CACHE_DECIMALS", 2))
 
         if model_path is None:
             model_path = os.path.join(config.MODELS_DIR, "sign_model.pkl")
@@ -59,6 +63,41 @@ class Classifier:
 
     # ── Inference ─────────────────────────────────────────────────────────────
 
+    def _prepare_features(self, features):
+        if features is None or len(features) == 0:
+            return None
+        if self.n_features_in_ is not None and len(features) != self.n_features_in_:
+            print(
+                f"[Classifier] Feature length mismatch: got {len(features)}, "
+                f"model expects {self.n_features_in_}. Rebuild dataset/model."
+            )
+            return None
+        return np.asarray(features, dtype=np.float32)
+
+    def _cache_key(self, arr):
+        rounded = np.round(arr, self._cache_decimals).astype(np.float32, copy=False)
+        return rounded.tobytes()
+
+    def _cache_get(self, key):
+        if key not in self._predict_cache:
+            return None
+        value = self._predict_cache.pop(key)
+        self._predict_cache[key] = value
+        return value
+
+    def _cache_put(self, key, value):
+        if self._cache_size <= 0:
+            return
+        self._predict_cache[key] = value
+        while len(self._predict_cache) > self._cache_size:
+            self._predict_cache.popitem(last=False)
+
+    def _result_from_proba(self, proba):
+        class_id = int(np.argmax(proba))
+        confidence = float(proba[class_id])
+        label = self.categories.get(class_id, "Unknown")
+        return label, confidence
+
     def predict(self, features):
         """
         Parameters
@@ -70,33 +109,65 @@ class Classifier:
         label      : str   – predicted sign letter / word
         confidence : float – probability in [0, 1]
         """
-        if features is None or len(features) == 0:
-            return "", 0.0
-
         if self.pipeline is None:
             return "No Model (Train First)", 0.0
 
         try:
-            if self.n_features_in_ is not None and len(features) != self.n_features_in_:
-                print(
-                    f"[Classifier] Feature length mismatch: got {len(features)}, "
-                    f"model expects {self.n_features_in_}. Rebuild dataset/model."
-                )
+            arr = self._prepare_features(features)
+            if arr is None:
                 return "Error", 0.0
 
-            X = np.array([features], dtype=np.float32)
+            key = self._cache_key(arr)
+            cached = self._cache_get(key)
+            if cached is not None:
+                return cached
 
-            # predict_proba available because all estimators use soft-voting
-            proba     = self.pipeline.predict_proba(X)[0]
-            class_id  = int(np.argmax(proba))
-            confidence = float(proba[class_id])
-            label      = self.categories.get(class_id, "Unknown")
+            X = arr.reshape(1, -1)
+            proba = self.pipeline.predict_proba(X)[0]
+            result = self._result_from_proba(proba)
+            self._cache_put(key, result)
 
-            return label, confidence
+            return result
 
         except Exception as e:
             print(f"[Classifier] Predict error: {e}")
             return "Error", 0.0
+
+    def predict_many(self, feature_rows):
+        """Batch predict several feature vectors, using the same cache as predict()."""
+        if self.pipeline is None:
+            return [("No Model (Train First)", 0.0) for _ in feature_rows]
+
+        missing_rows = []
+        missing_keys = []
+        results = [("", 0.0) for _ in feature_rows]
+
+        try:
+            for index, features in enumerate(feature_rows):
+                arr = self._prepare_features(features)
+                if arr is None:
+                    results[index] = ("Error", 0.0)
+                    continue
+                key = self._cache_key(arr)
+                cached = self._cache_get(key)
+                if cached is not None:
+                    results[index] = cached
+                else:
+                    missing_rows.append((index, arr))
+                    missing_keys.append(key)
+
+            if missing_rows:
+                X = np.vstack([arr for _, arr in missing_rows]).astype(np.float32, copy=False)
+                probas = self.pipeline.predict_proba(X)
+                for (index, _), key, proba in zip(missing_rows, missing_keys, probas):
+                    result = self._result_from_proba(proba)
+                    self._cache_put(key, result)
+                    results[index] = result
+
+            return results
+        except Exception as e:
+            print(f"[Classifier] Batch predict error: {e}")
+            return [("Error", 0.0) for _ in feature_rows]
 
     def predict_topk(self, features, k=5):
         """Return the top-k class probabilities for debugging live inference."""

@@ -56,16 +56,13 @@ def print_list(title, items):
 
 
 def project_files_for_face_scan():
-    for path in BASE_DIR.rglob("*"):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(BASE_DIR)
-        if any(part.startswith(".") for part in rel.parts[:-1]):
-            continue
-        rel_posix = rel.as_posix()
-        if any(rel_posix == skip or rel_posix.startswith(f"{skip}/") for skip in FACE_SCAN_SKIP_DIRS):
-            continue
-        yield path
+    import os
+    for root, dirs, files in os.walk(BASE_DIR):
+        # Prune directories starting with . or in FACE_SCAN_SKIP_DIRS in-place
+        dirs[:] = [d for d in dirs if d not in FACE_SCAN_SKIP_DIRS and not d.startswith(".")]
+        for f in files:
+            yield Path(root) / f
+
 
 
 def main():

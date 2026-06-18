@@ -7,6 +7,27 @@
    - Lucide icons re-init on tab switch
 ─────────────────────────────────────────────────────── */
 
+const PERF_CONFIG = window.BRIDGESIGN_PERF || {};
+const LIVE_PERF = PERF_CONFIG.live || {};
+const SPEECH_PERF = PERF_CONFIG.speech || PERF_CONFIG.voice || {};
+const IMAGE_PERF = PERF_CONFIG.image || {};
+
+let _speechVoices = [];
+
+function refreshSpeechVoices() {
+  if (!window.speechSynthesis) return [];
+  _speechVoices = window.speechSynthesis.getVoices() || [];
+  return _speechVoices;
+}
+
+function preferredSpeechVoice() {
+  const voices = _speechVoices.length ? _speechVoices : refreshSpeechVoices();
+  return voices.find(v => v.lang.startsWith("en") && v.name.includes("Female"))
+      || voices.find(v => v.lang.startsWith("en"))
+      || voices[0]
+      || null;
+}
+
 // ── Web Speech API speak helper ────────────────────────────
 function speak(text) {
   if (!text || !window.speechSynthesis) return;
@@ -18,19 +39,24 @@ function speak(text) {
     : text;
   window.speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(normalized);
-  utt.rate   = 0.95;
-  utt.pitch  = 1;
+  const rateSetting = numberOption(SPEECH_PERF.rate, 1.15);
+  const pitchSetting = numberOption(SPEECH_PERF.pitch, 1.0);
+  utt.rate   = rateSetting;
+  utt.pitch  = pitchSetting;
   utt.volume = 1;
-  // prefer a warmer voice if available
-  const voices = window.speechSynthesis.getVoices();
-  const pref   = voices.find(v => v.lang.startsWith("en") && v.name.includes("Female"))
-              || voices.find(v => v.lang.startsWith("en"))
-              || voices[0];
+  const pref = preferredSpeechVoice();
   if (pref) utt.voice = pref;
   window.speechSynthesis.speak(utt);
 }
 // Voices load async in some browsers
-window.speechSynthesis.onvoiceschanged = () => {};
+if (window.speechSynthesis) {
+  refreshSpeechVoices();
+  window.speechSynthesis.onvoiceschanged = refreshSpeechVoices;
+}
+
+const rateSetting = numberOption(SPEECH_PERF.rate, 1.15);
+const thresholdSetting = Math.max(2, numberOption(LIVE_PERF.consecutiveThreshold, 2));
+console.log(`[Perf] Voice rate: ${rateSetting}, Consecutive: ${thresholdSetting}`);
 
 // ── Tab Switching ──────────────────────────────────────────
 document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -68,27 +94,117 @@ let _inferInFlight = false;
 let _inferSeq      = 0;
 let _lastAppliedInferSeq = 0;
 let _permissionRetry = null;
-const INFER_INTERVAL_MS = 100; // 10 fps
-const INFER_SLOW_WARN_MS = 100;
-const INFER_HARD_TIMEOUT_MS = 900;
+let _inferFrameCounter = 0;
+let _lastInferResponseAt = 0;
+const INFER_INTERVAL_MS = Number(LIVE_PERF.inferIntervalMs || 70);
+const INFER_FRAME_SKIP = Math.max(1, Number(LIVE_PERF.frameSkip || 1));
+const INFER_SLOW_WARN_MS = Number(LIVE_PERF.slowWarnMs || 80);
+const INFER_HARD_TIMEOUT_MS = Number(LIVE_PERF.hardTimeoutMs || 550);
+const LOCAL_HANDS_TIMEOUT_MS = Number(LIVE_PERF.localHandsTimeoutMs || 700);
+const LOCAL_NO_HAND_FALLBACK_FRAMES = Number(LIVE_PERF.noHandFallbackFrames || 30);
+const LIVE_MEDIAPIPE_MAX_DIM = Number(LIVE_PERF.mediaPipeMaxDim || 320);
+const SERVER_FRAME_MAX_DIM = Number(LIVE_PERF.serverFrameMaxDim || 320);
+const SERVER_JPEG_QUALITY = Number(LIVE_PERF.jpegQuality || 0.55);
+const STALE_CLEAR_MS = Number(LIVE_PERF.staleClearMs || 350);
+const PERF_LOG_EVERY = Number(LIVE_PERF.logEvery || 60);
+const DEBUG_INFER_LOGS = false;
+const USE_CLIENT_HANDS = LIVE_PERF.useClientHands !== false;
+
+function numberOption(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function liveConsecutiveThreshold() {
+  const base = numberOption(LIVE_PERF.consecutiveThreshold, 2);
+  const wordBase = numberOption(LIVE_PERF.wordConsecutiveThreshold, base);
+  return Math.max(2, currentMode === "word" ? wordBase : base);
+}
+
+function scaledSize(width, height, maxDim) {
+  const cap = numberOption(maxDim, 0);
+  if (!cap || width <= cap && height <= cap) return { width, height };
+  const scale = cap / Math.max(width, height);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale))
+  };
+}
+
+function drawVideoFrame(video, canvas, maxDim) {
+  const size = scaledSize(video.videoWidth, video.videoHeight, maxDim);
+  canvas.width = size.width;
+  canvas.height = size.height;
+  canvas.getContext("2d").drawImage(video, 0, 0, size.width, size.height);
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 0) {
+  const timeout = numberOption(timeoutMs, 0);
+  if (!timeout) return fetch(url, options);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 let facingMode     = "user"; // "user" or "environment"
 let _localHands    = null;
 let useClientInference = false;
 let normalizeFrontCameraLandmarks = true;
+let _mediapipeFramesProcessed = 0;  // Track if MediaPipe actually works
+let _mediapipeWatchdog = null;      // Timer to detect hung MediaPipe
+let _localNoHandFrames = 0;
+let _localHandFrames = 0;
+const _inferPerf = {
+  count: 0,
+  clientTotal: 0,
+  serverTotal: 0,
+  lastMode: ""
+};
+
+function clearMediaPipeWatchdog() {
+  if (_mediapipeWatchdog) {
+    clearTimeout(_mediapipeWatchdog);
+    _mediapipeWatchdog = null;
+  }
+}
+
+function resetLocalHandsHealth() {
+  _mediapipeFramesProcessed = 0;
+  _localNoHandFrames = 0;
+  _localHandFrames = 0;
+}
+
+function switchToServerInference(reason, toastText = "Hand tracking switched to server mode") {
+  if (!useClientInference) return;
+  console.warn(`[BridgeSign] ${reason} Falling back to server-side hand detection.`);
+  useClientInference = false;
+  clearMediaPipeWatchdog();
+  _localNoHandFrames = 0;
+  if (cameraRunning && toastText) showToast(toastText);
+}
 
 // ── Initialize MediaPipe Hands locally if available ──
 function initLocalHands() {
+  if (!USE_CLIENT_HANDS) {
+    useClientInference = false;
+    console.log("[BridgeSign] Client-side hand tracking disabled; using stable server detection.");
+    return;
+  }
   if (typeof Hands !== "undefined") {
     try {
       _localHands = new Hands({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        locateFile: (file) => `/static/lib/mediapipe/${file}`
       });
+      const mediaPipeOptions = LIVE_PERF.mediaPipe || {};
       _localHands.setOptions({
-        maxNumHands: 1,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.65,
-        minTrackingConfidence: 0.55
+        maxNumHands: numberOption(mediaPipeOptions.maxNumHands, 1),
+        modelComplexity: numberOption(mediaPipeOptions.modelComplexity, 0),
+        minDetectionConfidence: numberOption(mediaPipeOptions.minDetectionConfidence, 0.5),
+        minTrackingConfidence: numberOption(mediaPipeOptions.minTrackingConfidence, 0.5)
       });
       _localHands.onResults(handleLocalHandsResults);
       useClientInference = true;
@@ -108,7 +224,10 @@ function initLocalHands() {
 
 // Handle results from client-side MediaPipe Hands
 async function handleLocalHandsResults(results) {
-  if (!cameraRunning) return;
+  if (!cameraRunning || !useClientInference) {
+    _inferInFlight = false;
+    return;
+  }
 
   const video = document.getElementById("videoFeed");
   if (!video || !video.videoWidth) {
@@ -116,8 +235,15 @@ async function handleLocalHandsResults(results) {
     return;
   }
 
+  // MediaPipe is alive — count processed frames & cancel watchdog
+  _mediapipeFramesProcessed++;
+  clearMediaPipeWatchdog();
+
   let landmarksList = null;
-  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+  const hasLocalHand = results.multiHandLandmarks && results.multiHandLandmarks.length > 0;
+  if (hasLocalHand) {
+    _localHandFrames++;
+    _localNoHandFrames = 0;
     const hand = results.multiHandLandmarks[0];
     const w = video.videoWidth;
     const h = video.videoHeight;
@@ -127,6 +253,16 @@ async function handleLocalHandsResults(results) {
       Math.round(normalizeLandmarkX(lm.x) * w),
       Math.round(lm.y * h)
     ]);
+  } else {
+    _localNoHandFrames++;
+    if (_localNoHandFrames >= LOCAL_NO_HAND_FALLBACK_FRAMES) {
+      switchToServerInference(
+        `Local MediaPipe returned ${_localNoHandFrames} frames with no landmarks.`,
+        "Switching to server hand detection..."
+      );
+      _inferInFlight = false;
+      return;
+    }
   }
 
   try {
@@ -149,7 +285,8 @@ async function sendLocalLandmarks(landmarks) {
       body: JSON.stringify({
         landmarks,
         camera_facing: facingMode,
-        mirrored: shouldMirrorFrontCameraLandmarks()
+        mirrored: shouldMirrorFrontCameraLandmarks(),
+        consecutive_threshold: liveConsecutiveThreshold()
       }),
       signal: controller.signal
     });
@@ -263,7 +400,7 @@ function getPermissionHelpContent(kind, err) {
     return {
       kicker: `${isCamera ? "Camera" : "Microphone"} setup`,
       title: `No ${deviceName} was available`,
-      intro: `BridgeSign could not find a usable ${deviceName}. This usually means the device is unplugged, disabled in Windows, or not selected by the browser.`,
+      intro: `SMART SIGN could not find a usable ${deviceName}. This usually means the device is unplugged, disabled in Windows, or not selected by the browser.`,
       detail: `Quick check: connect the device, confirm Windows can see it, then try again here.`,
       steps: [
         `Make sure your ${deviceName} is connected and not disabled.`,
@@ -278,7 +415,7 @@ function getPermissionHelpContent(kind, err) {
     return {
       kicker: `${isCamera ? "Camera" : "Microphone"} busy`,
       title: `Your ${deviceName} may already be in use`,
-      intro: `BridgeSign asked for the ${deviceName}, but Chrome could not start it. Another app may already be using it.`,
+      intro: `SMART SIGN asked for the ${deviceName}, but Chrome could not start it. Another app may already be using it.`,
       detail: `Common causes: Zoom, Teams, the Windows Camera app, voice recorder apps, or another browser tab.`,
       steps: [
         `Close other apps that might be using the ${deviceName}.`,
@@ -292,7 +429,7 @@ function getPermissionHelpContent(kind, err) {
   return {
     kicker: "Permission help",
     title: `${isCamera ? "Camera" : "Microphone"} access is blocked`,
-    intro: `BridgeSign needs your ${deviceName} to use this feature, but Chrome did not get permission.`,
+    intro: `SMART SIGN needs your ${deviceName} to use this feature, but Chrome did not get permission.`,
     detail: `If you clicked Block earlier, Chrome remembers that choice until you change it from the address bar or site settings.`,
     steps: blockedSteps,
   };
@@ -381,11 +518,27 @@ async function toggleCamera() {
     sessionStart = Date.now();
     signCount    = 0;
     updateLiveTracking({ frame_count: 0, landmark_count: 0, tracking_parts: [] });
+
+    // Watchdog check: if client MediaPipe never completes a frame, fall back.
+    resetLocalHandsHealth();
+    if (useClientInference) {
+      _mediapipeWatchdog = setTimeout(() => {
+        if (cameraRunning && _mediapipeFramesProcessed === 0 && useClientInference) {
+          switchToServerInference(
+            "MediaPipe watchdog triggered: no frames processed.",
+            "Switching to server hand detection..."
+          );
+        }
+      }, Math.max(4000, LOCAL_HANDS_TIMEOUT_MS * 10));
+    }
+
     startInferLoop();
     startTimer();
     triggerRipple();
   } else {
     stopInferLoop();
+    clearMediaPipeWatchdog();
+    resetLocalHandsHealth();
     if (_videoStream) { _videoStream.getTracks().forEach(t => t.stop()); _videoStream = null; }
     await fetch("/api/camera/stop", { method: "POST" });
     cameraRunning = false;
@@ -419,23 +572,37 @@ async function captureAndInfer() {
   if (_inferInFlight || !cameraRunning || document.hidden) return;
   const video  = document.getElementById("videoFeed");
   if (!video || !video.videoWidth) return;
+  _inferFrameCounter = (_inferFrameCounter + 1) % INFER_FRAME_SKIP;
+  if (_inferFrameCounter !== 0) return;
 
   if (useClientInference && _localHands) {
     _inferInFlight = true;
+    // Safety timeout: if MediaPipe hangs (WASM not loaded / blocked), fall back
+    const handsTimeout = setTimeout(() => {
+      if (_inferInFlight) {
+        switchToServerInference(
+          `MediaPipe timed out after ${LOCAL_HANDS_TIMEOUT_MS}ms.`,
+          "Hand tracking switched to server mode"
+        );
+        _inferInFlight = false;
+      }
+    }, LOCAL_HANDS_TIMEOUT_MS);
     try {
       await _localHands.send({ image: video });
+      clearTimeout(handsTimeout);
     } catch (err) {
-      console.warn("[Infer] Local MediaPipe send error:", err);
+      clearTimeout(handsTimeout);
+      switchToServerInference(
+        `Local MediaPipe send error: ${err?.message || err}`,
+        "Hand tracking switched to server mode"
+      );
       _inferInFlight = false;
     }
   } else {
     const canvas = document.getElementById("inferCanvas");
     if (!canvas) return;
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
     // Draw the frame as captured; server runs dual-orientation static prediction.
-    ctx.drawImage(video, 0, 0);
+    drawVideoFrame(video, canvas, SERVER_FRAME_MAX_DIM);
 
     _inferInFlight = true;
     const startedAt = performance.now();
@@ -444,8 +611,13 @@ async function captureAndInfer() {
       const seq = ++_inferSeq;
       const fd = new FormData();
       fd.append("frame", blob, "frame.jpg");
+      fd.append("consecutive_threshold", liveConsecutiveThreshold());
       try {
-        const res = await fetch("/api/infer_frame", { method: "POST", body: fd });
+        const res = await fetchWithTimeout(
+          "/api/infer_frame",
+          { method: "POST", body: fd },
+          INFER_HARD_TIMEOUT_MS
+        );
         const elapsed = performance.now() - startedAt;
         if (elapsed > INFER_SLOW_WARN_MS) {
           console.debug(`[Infer] slow frame request ${Math.round(elapsed)}ms`);
@@ -464,10 +636,14 @@ async function captureAndInfer() {
           }
         }
       } catch (err) {
-        console.error("[Infer] Network/fetch error:", err);
+        if (err?.name === "AbortError") {
+          console.warn(`[Infer] frame request timed out after ${INFER_HARD_TIMEOUT_MS}ms; dropping frame.`);
+        } else {
+          console.error("[Infer] Network/fetch error:", err);
+        }
       }
       _inferInFlight = false;
-    }, "image/jpeg", 0.7);
+    }, "image/jpeg", SERVER_JPEG_QUALITY);
   }
 }
 
@@ -478,12 +654,12 @@ function handleInferResponse(d) {
     return;
   }
   if (seq) _lastAppliedInferSeq = seq;
+  _lastInferResponseAt = performance.now();
 
   const handState = d.hand_state || "no_hand";
   updateLiveTracking(d);
 
-  // ── Debug console output (always on — helps diagnose recognition issues) ──
-  logInferDecision(d);
+  if (DEBUG_INFER_LOGS) logInferDecision(d);
 
   if (handState === "no_hand") {
     lastLabel = "";
@@ -500,40 +676,7 @@ function handleInferResponse(d) {
   updateHandState(handState, d);
 
   if (d.mode === "word") {
-    updateWordBuffer(d.word_buffer || "", d.last_word || "");
-    updateSentence(d.sentence || "");
-
-    if (d.last_word && d.last_word !== lastWord) {
-      lastWord = d.last_word;
-      speak(d.last_word);
-      addRecentChip(d.last_word);
-      signCount++;
-      updateStripCount(signCount);
-      softChime();
-      const el = document.getElementById("stripTop");
-      if (el) el.textContent = d.last_word;
-    }
-
-    if (d.completed_sentence) {
-      const wordCount = d.completed_sentence.trim().split(/\s+/).length;
-      if (wordCount > 1) speak(d.completed_sentence);
-      showToast(`📢 "${d.completed_sentence}"`);
-      addRecentChip(`💬 ${d.completed_sentence}`);
-      signCount++;
-      updateStripCount(signCount);
-      updateSentence("");
-      const lwEl = document.getElementById("lastWordVal");
-      if (lwEl) lwEl.textContent = "—";
-      lastWord = "";
-      const topEl = document.getElementById("stripTop");
-      if (topEl) topEl.textContent = d.completed_sentence;
-      const strip = document.getElementById("sentenceStrip");
-      if (strip) {
-        strip.style.transition = "box-shadow .15s ease";
-        strip.style.boxShadow  = "0 0 0 4px rgba(74,140,140,.5)";
-        setTimeout(() => { strip.style.boxShadow = ""; }, 1400);
-      }
-    }
+    applyAssemblerState(d);
   }
 
   if (d.label && d.label !== lastLabel && handState === "recognised") {
@@ -723,6 +866,7 @@ function updateWordBuffer(buffer, lastWordVal) {
   const lwEl  = document.getElementById("lastWordVal");
   if (bufEl) bufEl.textContent = buffer || "–";
   if (lwEl && lastWordVal) lwEl.textContent = lastWordVal;
+  if (DEBUG_INFER_LOGS) console.debug(`[WordModule] Buffered: "${buffer || ""}" (pause: false)`);
 }
 
 function updateSentence(sentence) {
@@ -840,45 +984,103 @@ async function flushWord() {
     });
     if (!res.ok) return;
     const d = await res.json();
-    if (d.ok) {
-      // Update UI elements immediately
-      updateWordBuffer(d.word_buffer || "", d.last_word || "");
-      updateSentence(d.sentence || "");
-      
-      if (d.completed_word) {
-        lastWord = d.completed_word;
-        speak(d.completed_word);
-        addRecentChip(d.completed_word);
-        signCount++;
-        updateStripCount(signCount);
-        softChime();
-        const el = document.getElementById("stripTop");
-        if (el) el.textContent = d.completed_word;
-      }
-      
-      if (d.completed_sentence) {
-        const wordCount = d.completed_sentence.trim().split(/\s+/).length;
-        if (wordCount > 1) speak(d.completed_sentence);
-        showToast(`📢 "${d.completed_sentence}"`);
-        addRecentChip(`💬 ${d.completed_sentence}`);
-        signCount++;
-        updateStripCount(signCount);
-        updateSentence("");
-        const lwEl = document.getElementById("lastWordVal");
-        if (lwEl) lwEl.textContent = "—";
-        lastWord = "";
-        const topEl = document.getElementById("stripTop");
-        if (topEl) topEl.textContent = d.completed_sentence;
-        const strip = document.getElementById("sentenceStrip");
-        if (strip) {
-          strip.style.transition = "box-shadow .15s ease";
-          strip.style.boxShadow  = "0 0 0 4px rgba(74,140,140,.5)";
-          setTimeout(() => { strip.style.boxShadow = ""; }, 1400);
-        }
-      }
-    }
+    if (d.ok) applyAssemblerState(d);
   } catch (err) {
     console.error("Error flushing word:", err);
+  }
+}
+
+async function clearCurrentWord() {
+  try {
+    const res = await fetch("/api/assembler/clear-word", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.ok) {
+      applyAssemblerState(d);
+      showToast("Current word cleared");
+    }
+  } catch (err) {
+    console.error("Error clearing word:", err);
+  }
+}
+
+async function undoLastWord() {
+  try {
+    const res = await fetch("/api/assembler/undo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.ok) {
+      applyAssemblerState(d);
+      showToast(d.removed_word ? `Removed "${d.removed_word}"` : "No completed word to undo");
+    }
+  } catch (err) {
+    console.error("Error undoing word:", err);
+  }
+}
+
+async function demoIntroPhrase() {
+  try {
+    const res = await fetch("/api/assembler/demo-intro", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.ok) {
+      applyAssemblerState(d);
+      const topEl = document.getElementById("stripTop");
+      if (topEl) topEl.textContent = d.sentence || "Hi, my name is Benson.";
+      showToast("Intro phrase ready");
+    }
+  } catch (err) {
+    console.error("Error loading intro phrase:", err);
+  }
+}
+
+function applyAssemblerState(d) {
+  updateWordBuffer(d.word_buffer || "", d.last_word || "");
+  updateSentence(d.sentence || "");
+
+  if (d.completed_word) {
+    console.debug(`[WordModule] Pause detected -> confirmed word: "${d.completed_word}"`);
+    console.debug(`[WordModule] Final phrase: "${d.sentence || d.completed_word}"`);
+    lastWord = d.completed_word;
+    speak(d.completed_word);
+    addRecentChip(d.completed_word);
+    signCount++;
+    updateStripCount(signCount);
+    softChime();
+    const el = document.getElementById("stripTop");
+    if (el) el.textContent = d.completed_word;
+  } else if (Object.prototype.hasOwnProperty.call(d, "last_word")) {
+    lastWord = d.last_word || "";
+  }
+
+  if (d.completed_sentence) {
+    const wordCount = d.completed_sentence.trim().split(/\s+/).length;
+    if (wordCount > 1) speak(d.completed_sentence);
+    showToast(`📢 "${d.completed_sentence}"`);
+    addRecentChip(`💬 ${d.completed_sentence}`);
+    signCount++;
+    updateStripCount(signCount);
+    updateSentence("");
+    const lwEl = document.getElementById("lastWordVal");
+    if (lwEl) lwEl.textContent = "—";
+    lastWord = "";
+    const topEl = document.getElementById("stripTop");
+    if (topEl) topEl.textContent = d.completed_sentence;
+    const strip = document.getElementById("sentenceStrip");
+    if (strip) {
+      strip.style.transition = "box-shadow .15s ease";
+      strip.style.boxShadow  = "0 0 0 4px rgba(74,140,140,.5)";
+      setTimeout(() => { strip.style.boxShadow = ""; }, 1400);
+    }
   }
 }
 
@@ -911,6 +1113,38 @@ function showToast(msg) {
 }
 
 // ══ IMAGE TAB ══════════════════════════════════════════════
+async function prepareImageUpload(file) {
+  const maxDim = numberOption(IMAGE_PERF.maxDim, 0);
+  if (!maxDim || !file?.type?.startsWith("image/") || typeof createImageBitmap === "undefined") {
+    return { blob: file, name: file?.name || "upload.jpg" };
+  }
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const size = scaledSize(bitmap.width, bitmap.height, maxDim);
+    if (size.width === bitmap.width && size.height === bitmap.height) {
+      if (bitmap.close) bitmap.close();
+      return { blob: file, name: file.name || "upload.jpg" };
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size.width;
+    canvas.height = size.height;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, size.width, size.height);
+    if (bitmap.close) bitmap.close();
+
+    const quality = numberOption(IMAGE_PERF.jpegQuality, 0.72);
+    const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+    return {
+      blob: blob || file,
+      name: (file.name || "upload").replace(/\.[^.]+$/, "") + ".jpg"
+    };
+  } catch (err) {
+    console.warn("[Image] could not resize upload, sending original:", err);
+    return { blob: file, name: file?.name || "upload.jpg" };
+  }
+}
+
 async function uploadImage(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -939,14 +1173,21 @@ async function uploadImage(event) {
   warnEl.textContent = "";
 
   const fd = new FormData();
-  fd.append("image", file);
+  const upload = await prepareImageUpload(file);
+  fd.append("image", upload.blob, upload.name);
   let d;
   try {
-    const res = await fetch("/api/translate_image", { method: "POST", body: fd });
+    const res = await fetchWithTimeout(
+      "/api/translate_image",
+      { method: "POST", body: fd },
+      numberOption(IMAGE_PERF.timeoutMs, 1200)
+    );
     d = await res.json();
   } catch (err) {
     el.textContent = "–";
-    warnEl.textContent = "⚠️ Upload failed. Please try again.";
+    warnEl.textContent = err?.name === "AbortError"
+      ? "Upload timed out. Try a smaller or clearer photo."
+      : "⚠️ Upload failed. Please try again.";
     warnEl.style.display = "block";
     return;
   }
@@ -1085,7 +1326,7 @@ function joinCallRoom() {
   const roomCode = extractRoomCode(input ? input.value : "");
 
   if (!/^[A-Za-z0-9_-]{3,40}$/.test(roomCode)) {
-    showToast("Enter a valid room code or BridgeSign call link.");
+    showToast("Enter a valid room code or SMART SIGN call link.");
     if (input) input.focus();
     return;
   }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>BridgeSign Call - {{ room_id }}</title>
+<title>SMART SIGN Call - {{ room_id }}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Lato:wght@400;700&display=swap"/>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"/>
 <style>
@@ -274,14 +274,14 @@
 
 <header class="call-header">
   <div class="call-brand">
-    <h1>BridgeSign Call</h1>
+    <h1>SMART SIGN Call</h1>
     <span id="connectionState">Room {{ room_id }}</span>
   </div>
   <div class="call-header-actions">
     <div class="room-code"><span>Code</span><strong>{{ room_id }}</strong></div>
     <select id="roleSelect" class="call-select" aria-label="Communication role">
-      <option value="deaf">I sign</option>
-      <option value="hearing">I speak</option>
+      <option value="deaf">I sign - camera to speech</option>
+      <option value="hearing">I speak - voice to signs</option>
     </select>
     <button class="call-btn secondary" id="copyLinkBtn" type="button">
       <i data-lucide="copy" width="16" height="16"></i>
@@ -336,7 +336,7 @@
       <div class="transcript-text" id="callTranscript">Waiting for captions...</div>
     </div>
     <div class="call-chat-row">
-      <input class="call-input" id="typedMessageInput" type="text" placeholder="Type a message" autocomplete="off"/>
+      <input class="call-input" id="typedMessageInput" type="text" placeholder="Type text to sign or speak" autocomplete="off"/>
       <button class="call-btn" id="sendTextBtn" type="button">
         <i data-lucide="send" width="16" height="16"></i>
         Send
@@ -349,12 +349,13 @@
   window.ROOM_ID = {{ room_id|tojson }};
   window.CALL_USERNAME = {{ username|tojson }};
 </script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='lib/mediapipe/camera_utils.js') }}"></script>
+<script src="{{ url_for('static', filename='lib/mediapipe/hands.js') }}"></script>
 <script src="{{ url_for('static', filename='avatar/cwasa_driver.js') }}?v=cwasa-asl-dict-20260521"></script>
 <script type="module" src="{{ url_for('static', filename='avatar/avatar_controller.js') }}?v=cwasa-asl-dict-20260521"></script>
 <script src="{{ url_for('static', filename='avatar/avatar_driver.js') }}?v=cwasa-asl-dict-20260521"></script>
-<script src="{{ url_for('static', filename='call.js') }}?v=cwasa-asl-dict-20260521"></script>
+<script src="{{ url_for('static', filename='performance-config.js') }}?v=speed-20260617"></script>
+<script src="{{ url_for('static', filename='call.js') }}?v=call-role-flow-20260615"></script>
 <script>
   if (typeof lucide !== "undefined") lucide.createIcons();
 </script>

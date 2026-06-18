@@ -142,7 +142,7 @@ def main():
             max_depth=None,
             min_samples_leaf=2,
             class_weight="balanced",
-            n_jobs=-1,
+            n_jobs=1,
             random_state=42,
         ))
     ])

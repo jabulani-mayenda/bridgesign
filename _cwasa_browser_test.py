@@ -294,7 +294,10 @@ def main():
         for event in cdp.events:
             text = event_text(event)
             if text:
-                print(text[:1000])
+                try:
+                    print(text[:1000])
+                except UnicodeEncodeError:
+                    print(text[:1000].encode("ascii", "replace").decode("ascii"))
     finally:
         proc.terminate()
         try:

@@ -1,15 +1,15 @@
 {
-  "cv_accuracy_mean": 1.0,
+  "cv_accuracy_mean": 0.9992567818654775,
   "cv_accuracy_std": 0.0,
-  "validation_accuracy": 1.0,
+  "validation_accuracy": 0.9992567818654775,
   "validation_strategy": "stratified 20% holdout (pre-augmentation)",
   "augmentation": "3 copies (noise + scale jitter) + mirror views (excludes ['J', 'P', 'Q', 'Z'])",
   "classification_report": {
     "A": {
-      "precision": 1.0,
+      "precision": 0.9915254237288136,
       "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 90.0
+      "f1-score": 0.9957446808510638,
+      "support": 117.0
     },
     "B": {
       "precision": 1.0,
@@ -42,16 +42,16 @@
       "support": 90.0
     },
     "G": {
-      "precision": 1.0,
+      "precision": 0.9915254237288136,
       "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 90.0
+      "f1-score": 0.9957446808510638,
+      "support": 117.0
     },
     "H": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 90.0
+      "support": 117.0
     },
     "I": {
       "precision": 1.0,
@@ -63,13 +63,13 @@
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 90.0
+      "support": 117.0
     },
     "K": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 90.0
+      "support": 117.0
     },
     "L": {
       "precision": 1.0,
@@ -79,15 +79,15 @@
     },
     "M": {
       "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 90.0
+      "recall": 0.9914529914529915,
+      "f1-score": 0.9957081545064378,
+      "support": 117.0
     },
     "N": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 90.0
+      "support": 117.0
     },
     "O": {
       "precision": 1.0,
@@ -99,7 +99,7 @@
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 90.0
+      "support": 117.0
     },
     "Q": {
       "precision": 1.0,
@@ -111,31 +111,31 @@
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 90.0
+      "support": 117.0
     },
     "S": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 90.0
+      "support": 117.0
     },
     "T": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 90.0
+      "support": 117.0
     },
     "U": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 90.0
+      "support": 117.0
     },
     "V": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 90.0
+      "support": 117.0
     },
     "W": {
       "precision": 1.0,
@@ -145,8 +145,8 @@
     },
     "X": {
       "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
+      "recall": 0.9888888888888889,
+      "f1-score": 0.994413407821229,
       "support": 90.0
     },
     "Y": {
@@ -161,23 +161,23 @@
       "f1-score": 1.0,
       "support": 90.0
     },
-    "accuracy": 1.0,
+    "accuracy": 0.9992567818654775,
     "macro avg": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 2340.0
+      "precision": 0.999348109517601,
+      "recall": 0.9992439184746877,
+      "f1-score": 0.9992927278472998,
+      "support": 2691.0
     },
     "weighted avg": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 2340.0
+      "precision": 0.9992630803242446,
+      "recall": 0.9992567818654775,
+      "f1-score": 0.9992565277221526,
+      "support": 2691.0
     }
   },
   "confusion_matrix": [
     [
-      90,
+      117,
       0,
       0,
       0,
@@ -351,7 +351,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -380,7 +380,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -438,7 +438,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -467,7 +467,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -513,6 +513,7 @@
       0
     ],
     [
+      1,
       0,
       0,
       0,
@@ -524,8 +525,7 @@
       0,
       0,
       0,
-      0,
-      90,
+      116,
       0,
       0,
       0,
@@ -554,7 +554,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -612,7 +612,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -670,7 +670,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -699,7 +699,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -728,7 +728,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -757,7 +757,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -786,7 +786,7 @@
       0,
       0,
       0,
-      90,
+      117,
       0,
       0,
       0,
@@ -827,6 +827,7 @@
       0,
       0,
       0,
+      1,
       0,
       0,
       0,
@@ -843,8 +844,7 @@
       0,
       0,
       0,
-      0,
-      90,
+      89,
       0,
       0
     ],

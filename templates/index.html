@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>BridgeSign – Sign Language Translator</title>
+<title>SMART SIGN – Sign Language Translator</title>
 <!-- PWA -->
 <link rel="manifest" href="/static/manifest.json"/>
 <meta name="theme-color" content="#c1440e"/>
@@ -40,7 +40,7 @@
 <header class="site-header pour-in">
   <div class="logo">
     <span class="logo-mark">◎</span>
-    <span class="logo-name">BridgeSign</span>
+    <span class="logo-name">SMART SIGN</span>
   </div>
   <nav class="nav-tabs">
     <button class="tab-btn active" data-tab="live">
@@ -168,6 +168,24 @@
           <i data-lucide="corner-down-right" width="14" height="14"></i>
           Next Word ⏎
         </button>
+        <button class="action-btn secondary-btn" id="demoIntroBtn" onclick="demoIntroPhrase()"
+                style="margin-top:8px;width:100%;font-size:.82rem;"
+                title="Show the presentation introduction phrase">
+          <i data-lucide="message-square" width="14" height="14"></i>
+          Intro Demo
+        </button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+          <button class="action-btn secondary-btn" id="clearWordBtn" onclick="clearCurrentWord()"
+                  style="font-size:.78rem;" title="Clear the current word buffer">
+            <i data-lucide="x" width="14" height="14"></i>
+            Clear Word
+          </button>
+          <button class="action-btn clear-btn" id="undoWordBtn" onclick="undoLastWord()"
+                  style="font-size:.78rem;" title="Remove the last completed word">
+            <i data-lucide="undo-2" width="14" height="14"></i>
+            Undo Word
+          </button>
+        </div>
       </div>
 
       <!-- Controls -->
@@ -316,7 +334,7 @@
         <div class="step-num">3</div>
         <i data-lucide="check-circle" width="28" height="28" style="color:var(--sage)"></i>
         <h3>Confirm</h3>
-        <p>Switch to Live tab — BridgeSign will recognise your sign and celebrate.</p>
+        <p>Switch to Live tab — SMART SIGN will recognise your sign and celebrate.</p>
       </div>
     </div>
   </div>
@@ -581,7 +599,7 @@
 <main class="tab-panel" id="tab-call">
   <div class="page-hero pour-in">
     <i data-lucide="video" width="36" height="36" style="color:var(--terracotta)"></i>
-    <h2 class="hero-title">BridgeSign Call</h2>
+    <h2 class="hero-title">SMART SIGN Call</h2>
     <p class="hero-sub">Create a room link or join with a room code.</p>
   </div>
 
@@ -595,7 +613,7 @@
         <i data-lucide="video" width="16" height="16"></i>
         Create Call Room
       </a>
-      <div class="call-home-meta">BridgeSign will create a short room code and a shareable link.</div>
+      <div class="call-home-meta">SMART SIGN will create a short room code and a shareable link.</div>
     </section>
 
     <section class="call-home-card">
@@ -635,13 +653,14 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='lib/mediapipe/camera_utils.js') }}"></script>
+<script src="{{ url_for('static', filename='lib/mediapipe/hands.js') }}"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <script src="{{ url_for('static', filename='avatar/cwasa_driver.js') }}?v=cwasa-asl-dict-20260521"></script>
 <script type="module" src="{{ url_for('static', filename='avatar/avatar_controller.js') }}?v=cwasa-asl-dict-20260521"></script>
 <script src="{{ url_for('static', filename='avatar/avatar_driver.js') }}?v=cwasa-asl-dict-20260521"></script>
-<script src="{{ url_for('static', filename='app.js') }}?v=speech-fallback-20260524"></script>
+<script src="{{ url_for('static', filename='performance-config.js') }}?v=speed-20260617"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=stable-demo-20260617"></script>
 <script>lucide.createIcons();</script>
 <script>
   if ('serviceWorker' in navigator) {

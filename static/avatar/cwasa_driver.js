@@ -199,11 +199,7 @@
         const label = data.detail?.label || "SIGN";
         clearMotionWatch();
         status(options, `Needs SiGML: ${label.replace(/_/g, " ")}`);
-        const fallback = ensureFallbackAvatar();
-        if (fallback) {
-          showFallback();
-          fallback.queueSign(label);
-        }
+        showCWASA();
         window.dispatchEvent(new CustomEvent("avatar-cwasa-unsupported", {
           detail: { label, containerId }
         }));
@@ -214,10 +210,12 @@
         const message = data.detail?.message || "CWASA avatar error.";
         const label = data.detail?.label || "";
         clearMotionWatch();
-        const fallback = label ? ensureFallbackAvatar() : null;
+        const fallback = options.allowVRMFallback === true && label ? ensureFallbackAvatar() : null;
         if (fallback) {
           showFallback();
           fallback.queueSign(label);
+        } else {
+          showCWASA();
         }
         if (loader) {
           loader.style.display = "block";

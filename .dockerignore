@@ -34,3 +34,4 @@ data/dataset_*.csv
 data/dataset_pre_retrain.csv
 data/gesture_dataset.csv
 dataset/
+gesture_videos/

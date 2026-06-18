@@ -3,7 +3,7 @@
    - API calls always go to network (no stale inference)
    - Shows offline page when network unreachable
 */
-const CACHE  = "bridgesign-v17-speech-fallback";
+const CACHE  = "bridgesign-v19-stable-demo";
 const SHELL  = [
   "/",
   "/static/app.js",
@@ -26,11 +26,16 @@ const SHELL  = [
   "/static/lib/GLTFLoader.js",
   "/static/lib/three-vrm.module.min.js",
   "/static/utils/BufferGeometryUtils.js",
+  "/static/lib/mediapipe/camera_utils.js",
+  "/static/lib/mediapipe/hands.js",
+  "/static/lib/mediapipe/hands_solution_simd_wasm_bin.js",
+  "/static/lib/mediapipe/hands_solution_simd_wasm_bin.wasm",
+  "/static/lib/mediapipe/hands.binarypb",
 ];
 const OFFLINE_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BridgeSign – Offline</title>
+<title>SMART SIGN – Offline</title>
 <style>
   body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;
        font-family:system-ui,sans-serif;background:#1a1612;color:#e8ddd0;text-align:center;padding:2rem}
@@ -40,7 +45,7 @@ const OFFLINE_HTML = `<!DOCTYPE html>
 <body>
   <div><div class="icon">◎</div>
   <h1>You're offline</h1>
-  <p>BridgeSign needs a connection to run inference.<br>Connect to the internet and try again.</p></div>
+  <p>SMART SIGN needs a connection to run inference.<br>Connect to the internet and try again.</p></div>
 </body></html>`;
 
 self.addEventListener("install", e => {

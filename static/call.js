@@ -8,6 +8,9 @@
 
 const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
 const wsUrl = `${wsScheme}://${window.location.host}/ws/call/${window.ROOM_ID}`;
+const PERF_CONFIG = window.BRIDGESIGN_PERF || {};
+const CALL_PERF = PERF_CONFIG.call || {};
+const SPEECH_PERF = PERF_CONFIG.speech || PERF_CONFIG.voice || {};
 
 let ws;
 let pc;
@@ -41,12 +44,42 @@ const avatarQueue = [];
 let avatarQueueRunning = false;
 const speechQueue = [];
 let speechQueueRunning = false;
+let callWordModule = null;
+let _inferFrameCounter = 0;
 
-const INFER_INTERVAL_MS = 140;
-const INFER_SLOW_WARN_MS = 100;
-const INFER_HARD_TIMEOUT_MS = 900;
-const SIGN_REPEAT_MS = 1600;
-const SPEECH_PARTIAL_SEND_MS = 500;
+const INFER_INTERVAL_MS = Number(CALL_PERF.inferIntervalMs || 140);
+const INFER_FRAME_SKIP = Math.max(1, Number(CALL_PERF.frameSkip || 1));
+const INFER_SLOW_WARN_MS = Number(CALL_PERF.slowWarnMs || 100);
+const INFER_HARD_TIMEOUT_MS = Number(CALL_PERF.hardTimeoutMs || 900);
+const SERVER_FRAME_MAX_DIM = Number(CALL_PERF.serverFrameMaxDim || 320);
+const SERVER_JPEG_QUALITY = Number(CALL_PERF.jpegQuality || 0.72);
+const SIGN_REPEAT_MS = 900;
+const SPEECH_PARTIAL_SEND_MS = Number(CALL_PERF.speechPartialSendMs || SPEECH_PERF.interimDebounceMs || 500);
+const wordModuleConfig = {
+  WORD_PAUSE_MS: 400,
+  MIN_WORD_LENGTH: 1,
+  AUTO_SPACE: true,
+  ENABLE_WORD_MAPPING: true,
+  CASE_SENSITIVE: false,
+  DUPLICATE_SIGN_MS: 850,
+  IDLE_CLEAR_MS: 5000
+};
+const SIGN_WORD_MAP = {
+  I: "I",
+  A: "A",
+  LOVE: "love",
+  YOU: "you",
+  ILOVEYOU: "I love you",
+  THANKYOU: "thank you",
+  THANK_YOU: "thank you",
+  HELLO: "hello",
+  HELP: "help",
+  YES: "yes",
+  NO: "no",
+  PLEASE: "please",
+  SORRY: "sorry",
+  STOP: "stop"
+};
 const ICE_SERVERS = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -57,18 +90,51 @@ const ICE_SERVERS = {
   ]
 };
 
+function numberOption(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function callConsecutiveThreshold() {
+  return Math.max(2, numberOption(CALL_PERF.consecutiveThreshold, 2));
+}
+
+function isFirstConfirmedFrame(data) {
+  const threshold = Number(data?.consecutive_threshold || 0);
+  const consecutive = Number(data?.consecutive || 0);
+  return !threshold || !consecutive || consecutive === threshold;
+}
+
+function scaledSize(width, height, maxDim) {
+  const cap = numberOption(maxDim, 0);
+  if (!cap || width <= cap && height <= cap) return { width, height };
+  const scale = cap / Math.max(width, height);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale))
+  };
+}
+
+function drawVideoFrame(video, canvas, maxDim) {
+  const size = scaledSize(video.videoWidth, video.videoHeight, maxDim);
+  canvas.width = size.width;
+  canvas.height = size.height;
+  canvas.getContext("2d").drawImage(video, 0, 0, size.width, size.height);
+}
+
 // ── Initialize MediaPipe Hands locally if available ──
 function initLocalHands() {
   if (typeof Hands !== "undefined") {
     try {
       _localHands = new Hands({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        locateFile: (file) => `/static/lib/mediapipe/${file}`
       });
+      const mediaPipeOptions = CALL_PERF.mediaPipe || {};
       _localHands.setOptions({
-        maxNumHands: 1,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.65,
-        minTrackingConfidence: 0.55
+        maxNumHands: numberOption(mediaPipeOptions.maxNumHands, 1),
+        modelComplexity: numberOption(mediaPipeOptions.modelComplexity, 0),
+        minDetectionConfidence: numberOption(mediaPipeOptions.minDetectionConfidence, 0.55),
+        minTrackingConfidence: numberOption(mediaPipeOptions.minTrackingConfidence, 0.55)
       });
       _localHands.onResults(handleLocalHandsResults);
       useClientInference = true;
@@ -126,7 +192,8 @@ async function sendLocalLandmarks(landmarks) {
       body: JSON.stringify({
         landmarks,
         camera_facing: facingMode,
-        mirrored: shouldMirrorFrontCameraLandmarks()
+        mirrored: shouldMirrorFrontCameraLandmarks(),
+        consecutive_threshold: callConsecutiveThreshold()
       }),
       signal: controller.signal
     });
@@ -197,6 +264,10 @@ function setTranscript(text) {
   if (els.callTranscript) els.callTranscript.textContent = text || "Waiting for captions...";
 }
 
+function setAvatarStatus(text) {
+  if (els.callAvatarStatus) els.callAvatarStatus.textContent = text || "Avatar ready";
+}
+
 function normalizeSpokenSign(text) {
   const clean = String(text || "").replace(/_/g, " ").trim();
   if (!clean) return "";
@@ -211,7 +282,8 @@ function speakNow(text) {
     ? text.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
     : text;
   const utt = new SpeechSynthesisUtterance(normalized);
-  utt.rate = 0.95;
+  const baseRate = numberOption(SPEECH_PERF.rate, 1.15);
+  utt.rate = baseRate;
   utt.pitch = 1;
   utt.volume = 1;
   const voices = window.speechSynthesis.getVoices();
@@ -242,7 +314,8 @@ function runSpeechQueue() {
 
   speechQueueRunning = true;
   const utt = new SpeechSynthesisUtterance(next);
-  utt.rate = /^[A-Z]$/.test(next) ? 0.82 : 0.95;
+  const baseRate = numberOption(SPEECH_PERF.rate, 1.15);
+  utt.rate = /^[A-Z]$/.test(next) ? baseRate * 0.85 : baseRate;
   utt.pitch = 1;
   utt.volume = 1;
   const voices = window.speechSynthesis.getVoices();
@@ -385,11 +458,120 @@ function normalizeCacheKey(text) {
   return String(text || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+class WordModule {
+  constructor(config = wordModuleConfig) {
+    this.config = config;
+    this.currentWordBuffer = "";
+    this.confirmedWords = [];
+    this.lastSign = "";
+    this.lastSignAt = 0;
+    this.lastInputAt = 0;
+  }
+
+  pushSign(sign, now = Date.now()) {
+    const clean = String(sign || "").replace(/\s+/g, "_").trim().toUpperCase();
+    if (!clean) return this.state();
+
+    if (
+      clean === this.lastSign
+      && now - this.lastSignAt < this.config.DUPLICATE_SIGN_MS
+    ) {
+      return this.state();
+    }
+
+    if (this.lastInputAt && now - this.lastInputAt >= this.config.WORD_PAUSE_MS) {
+      this.commitCurrentWord(now - this.lastInputAt);
+    }
+
+    if (clean.length > 1) {
+      this.commitCurrentWord(0);
+      this.confirmedWords.push(this.mapWord(clean));
+      this.lastSign = clean;
+      this.lastSignAt = now;
+      this.lastInputAt = now;
+      console.log(`[WordModule] Pause detected -> confirmed word: "${this.confirmedWords.at(-1)}"`);
+      console.log(`[WordModule] Final phrase: "${this.finalPhrase()}"`);
+      return this.state({ completedWord: this.confirmedWords.at(-1) });
+    }
+
+    this.currentWordBuffer += clean;
+    this.lastSign = clean;
+    this.lastSignAt = now;
+    this.lastInputAt = now;
+    console.log(`[WordModule] Buffered: "${this.currentWordBuffer}" (pause: false)`);
+    return this.state();
+  }
+
+  tick(handPresent, now = Date.now()) {
+    if (
+      !handPresent
+      && this.currentWordBuffer
+      && this.lastInputAt
+      && now - this.lastInputAt >= this.config.WORD_PAUSE_MS
+    ) {
+      const completedWord = this.commitCurrentWord(now - this.lastInputAt);
+      return this.state({ completedWord });
+    }
+    if (
+      !handPresent
+      && !this.currentWordBuffer
+      && this.lastInputAt
+      && now - this.lastInputAt >= this.config.IDLE_CLEAR_MS
+    ) {
+      this.lastSign = "";
+    }
+    return this.state();
+  }
+
+  commitCurrentWord(pauseMs = 0) {
+    if (this.currentWordBuffer.length < this.config.MIN_WORD_LENGTH) return "";
+    const word = this.mapWord(this.currentWordBuffer);
+    this.currentWordBuffer = "";
+    if (word) this.confirmedWords.push(word);
+    console.log(`[WordModule] Pause detected (${Math.round(pauseMs)}ms) -> confirmed word: "${word}"`);
+    console.log(`[WordModule] Final phrase: "${this.finalPhrase()}"`);
+    return word;
+  }
+
+  mapWord(raw) {
+    const clean = String(raw || "").replace(/\s+/g, "").toUpperCase();
+    const mapped = this.config.ENABLE_WORD_MAPPING ? SIGN_WORD_MAP[clean] : "";
+    if (mapped) return mapped;
+    return this.config.CASE_SENSITIVE ? raw : clean;
+  }
+
+  undoWord() {
+    return this.confirmedWords.pop() || "";
+  }
+
+  clearWord() {
+    this.currentWordBuffer = "";
+  }
+
+  finalPhrase() {
+    return this.confirmedWords.join(this.config.AUTO_SPACE ? " " : "");
+  }
+
+  state(extra = {}) {
+    return {
+      currentWordBuffer: this.currentWordBuffer,
+      confirmedWords: [...this.confirmedWords],
+      finalPhrase: this.finalPhrase(),
+      ...extra
+    };
+  }
+}
+
 // ── Main startup ───────────────────────────────────────────────────
 async function startCall() {
+  const rateSetting = numberOption(SPEECH_PERF.rate, 1.15);
+  const thresholdSetting = callConsecutiveThreshold();
+  console.log(`[Perf] Voice rate: ${rateSetting}, Consecutive: ${thresholdSetting}`);
+
   cacheElements();
   bindControls();
   initCallAvatar();
+  callWordModule = new WordModule();
   
   // Try initializing client-side MediaPipe tracking
   initLocalHands();
@@ -729,6 +911,10 @@ function sendCaption(type, content, extra = {}) {
   } else {
     setCaption(type === "speech" ? `"${clean}"` : clean, "var(--sage)");
     setTranscript(clean);
+    if (role === "hearing" && (type === "speech" || type === "text") && !extra.partial) {
+      setAvatarStatus("Previewing your speech as signs");
+      playTextOnAvatar(clean);
+    }
   }
 }
 
@@ -740,15 +926,17 @@ function updateRoleLogic() {
   if (role === "deaf") {
     // I am signing → run hand inference, my signs go to the hearing partner as speech
     startInferLoop();
-    if (els.callAvatarStatus) els.callAvatarStatus.textContent = "Partner speech will sign here";
-    setCaption("Sign when ready – partner will hear you", "rgba(255,255,255,.78)");
+    setAvatarStatus("Partner speech signs here");
+    setTranscript("Camera signs will be sent to your partner as text and speech.");
+    setCaption("Sign when ready - partner will hear you", "rgba(255,255,255,.78)");
     return;
   }
 
   // I am the hearing partner → use my microphone, my speech drives the deaf side avatar
   startSpeechRecognition();
-  if (els.callAvatarStatus) els.callAvatarStatus.textContent = "Your speech becomes signs for partner";
-  setCaption("Speak – partner's signs will appear here", "rgba(255,255,255,.78)");
+  setAvatarStatus("Your speech previews here");
+  setTranscript("Speech recognition is listening. Your speech will sign on your partner's avatar.");
+  setCaption("Speak - partner's avatar will sign it", "rgba(255,255,255,.78)");
 }
 
 // ── Sign inference loop (deaf role) ───────────────────────────────
@@ -769,6 +957,8 @@ async function captureAndInfer() {
   if (_inferInFlight || !localStream || cameraOff) return;
   const video = els.localVideo;
   if (!video || !video.videoWidth) return;
+  _inferFrameCounter = (_inferFrameCounter + 1) % INFER_FRAME_SKIP;
+  if (_inferFrameCounter !== 0) return;
 
   if (useClientInference && _localHands) {
     _inferInFlight = true;
@@ -781,13 +971,7 @@ async function captureAndInfer() {
   } else {
     const canvas = $("inferCanvas");
     if (!canvas) return;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx.save();
-
-    ctx.drawImage(video, 0, 0);
-    ctx.restore();
+    drawVideoFrame(video, canvas, SERVER_FRAME_MAX_DIM);
 
     _inferInFlight = true;
     const startedAt = performance.now();
@@ -799,8 +983,15 @@ async function captureAndInfer() {
 
       const fd = new FormData();
       fd.append("frame", blob, "frame.jpg");
+      fd.append("consecutive_threshold", callConsecutiveThreshold());
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), INFER_HARD_TIMEOUT_MS);
       try {
-        const res = await fetch("/api/infer_frame", { method: "POST", body: fd });
+        const res = await fetch("/api/infer_frame", {
+          method: "POST",
+          body: fd,
+          signal: controller.signal
+        });
         const elapsed = performance.now() - startedAt;
         if (elapsed > INFER_SLOW_WARN_MS) {
           console.debug(`[Call] slow frame request ${Math.round(elapsed)}ms`);
@@ -808,9 +999,15 @@ async function captureAndInfer() {
         const data = await res.json().catch(() => ({}));
         data._clientSeq = ++_inferSeq;
         if (res.ok) handleInferResponse(data);
-      } catch (_) {}
+      } catch (err) {
+        if (err?.name === "AbortError") {
+          console.warn(`[Call] frame request timed out after ${INFER_HARD_TIMEOUT_MS}ms; dropping frame.`);
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
       _inferInFlight = false;
-    }, "image/jpeg", 0.72);
+    }, "image/jpeg", SERVER_JPEG_QUALITY);
   }
 }
 
@@ -822,9 +1019,18 @@ function handleInferResponse(data) {
   }
   if (seq) _lastAppliedInferSeq = seq;
 
-  // Prefer completed sentence > completed word > current label
-  const label = data.completed_sentence || data.completed_word || data.label || "";
+  if (data.hand_state === "no_hand" && callWordModule) {
+    const state = callWordModule.tick(false);
+    if (state.completedWord) {
+      sendCaption("sign", state.completedWord, { unit: "word" });
+    }
+    return;
+  }
+
+  const completed = data.completed_sentence || data.completed_word || "";
+  const label = completed || data.label || "";
   if (!label || data.hand_state !== "recognised") return;
+  if (!completed && !isFirstConfirmedFrame(data)) return;
 
   const now = Date.now();
   if (label === lastSign && now - lastSignTime < SIGN_REPEAT_MS) return;
@@ -832,9 +1038,26 @@ function handleInferResponse(data) {
   lastSign = label;
   lastSignTime = now;
 
-  // Send the sign/word over the data channel to the hearing partner
-  // who will then have it spoken aloud by their browser
-  sendCaption("sign", label, { confidence: data.confidence || 0 });
+  if (completed || !callWordModule) {
+    sendCaption("sign", label, { confidence: data.confidence || 0, unit: completed ? "word" : "sign" });
+    return;
+  }
+
+  if (["UNDO", "BACKSPACE", "DELETE", "WAVE_LEFT"].includes(String(label).toUpperCase())) {
+    const removed = callWordModule.undoWord();
+    setTranscript(removed ? `Removed word: ${removed}` : "No word to undo");
+    console.log(`[WordModule] Undo gesture -> removed word: "${removed}"`);
+    return;
+  }
+
+  const state = callWordModule.pushSign(label, now);
+  setTranscript(state.currentWordBuffer
+    ? `Building word: ${state.currentWordBuffer}`
+    : state.finalPhrase || "Signing...");
+
+  if (state.completedWord) {
+    sendCaption("sign", state.completedWord, { confidence: data.confidence || 0, unit: "word" });
+  }
 }
 
 // ── Speech recognition (hearing role) ─────────────────────────────
