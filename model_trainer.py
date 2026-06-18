@@ -14,7 +14,8 @@ Usage:
   python model_trainer.py
 
 Output files saved to models/:
-  sign_model.pkl          <- trained pipeline
+  sign_model_light.pkl    <- trained pipeline used by the app when present
+  sign_model.pkl          <- legacy trained pipeline
   sign_model_classes.json <- ordered class labels
   sign_model_metrics.json <- CV and per-class metrics
 """
@@ -26,7 +27,7 @@ import config
 from feature_extractor import FEATURE_VECTOR_SIZE
 
 DATA_PATH    = os.path.join(config.DATA_DIR,   "dataset.csv")
-MODEL_PATH   = os.path.join(config.MODELS_DIR, "sign_model.pkl")
+MODEL_PATH   = os.path.join(config.MODELS_DIR, "sign_model_light.pkl")
 CLASSES_PATH = MODEL_PATH.replace(".pkl", "_classes.json")
 METRICS_PATH = MODEL_PATH.replace(".pkl", "_metrics.json")
 
@@ -206,10 +207,10 @@ def main():
     # 4. Build RandomForest classifier (fast & accurate)
     # NOTE: SVM + VotingClassifier was removed — it added 30+ min training
     # time with no meaningful accuracy improvement over RF alone (99.95%).
-    # Keep the forest small enough for Render's 512MB instances (~30–50MB on disk).
+    # Keep the forest small enough for Render's 512MB instances.
     rf = RandomForestClassifier(
-        n_estimators=200,
-        max_depth=28,
+        n_estimators=80,
+        max_depth=18,
         min_samples_leaf=2,
         class_weight="balanced",
         n_jobs=1,
@@ -222,7 +223,7 @@ def main():
     ])
 
     # 5. Train on full augmented training set
-    print("  Fitting model (RandomForest, 200 trees, max_depth=28)...")
+    print("  Fitting model (RandomForest, 80 trees, max_depth=18)...")
     pipeline.fit(X_train, y_train)
     cv_scores = np.array([pipeline.score(X_val, y_val)])  # simple holdout score
 

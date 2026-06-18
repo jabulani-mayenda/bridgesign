@@ -23,7 +23,9 @@ class Classifier:
         self._cache_decimals = int(getattr(config, "CLASSIFIER_CACHE_DECIMALS", 2))
 
         if model_path is None:
-            model_path = os.path.join(config.MODELS_DIR, "sign_model.pkl")
+            preferred_model = os.path.join(config.MODELS_DIR, "sign_model_light.pkl")
+            legacy_model = os.path.join(config.MODELS_DIR, "sign_model.pkl")
+            model_path = preferred_model if os.path.exists(preferred_model) else legacy_model
 
         if os.path.exists(model_path):
             self.load_model(model_path)
