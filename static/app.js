@@ -869,6 +869,21 @@ function updateWordBuffer(buffer, lastWordVal) {
   if (DEBUG_INFER_LOGS) console.debug(`[WordModule] Buffered: "${buffer || ""}" (pause: false)`);
 }
 
+function updatePhraseAssist(assist = {}) {
+  const targetEl = document.getElementById("phraseAssistTarget");
+  const suggestionEl = document.getElementById("phraseAssistSuggestion");
+  const nextBtn = document.getElementById("nextWordBtn");
+  const target = assist.target || "Hi, my name is Benson.";
+  const suggestion = assist.suggestion || assist.next_word || "";
+  if (targetEl) targetEl.textContent = target;
+  if (suggestionEl) suggestionEl.textContent = suggestion || "–";
+  if (nextBtn) {
+    nextBtn.title = suggestion
+      ? `Confirm "${suggestion}"`
+      : "Commit the current letters as a complete word now";
+  }
+}
+
 function updateSentence(sentence) {
   const el = document.getElementById("sentenceDisplay");
   if (el) el.textContent = sentence || "—";
@@ -984,9 +999,30 @@ async function flushWord() {
     });
     if (!res.ok) return;
     const d = await res.json();
-    if (d.ok) applyAssemblerState(d);
+    if (d.ok) {
+      applyAssemblerState(d);
+      if (d.completed_word) showToast(`Confirmed "${d.completed_word}"`);
+    }
   } catch (err) {
     console.error("Error flushing word:", err);
+  }
+}
+
+async function setPhraseAssist(phrase) {
+  try {
+    const res = await fetch("/api/assembler/assist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase })
+    });
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.ok) {
+      applyAssemblerState(d);
+      showToast("Phrase assist ready");
+    }
+  } catch (err) {
+    console.error("Error setting phrase assist:", err);
   }
 }
 
@@ -1046,6 +1082,7 @@ async function demoIntroPhrase() {
 function applyAssemblerState(d) {
   updateWordBuffer(d.word_buffer || "", d.last_word || "");
   updateSentence(d.sentence || "");
+  updatePhraseAssist(d.assist || {});
 
   if (d.completed_word) {
     console.debug(`[WordModule] Pause detected -> confirmed word: "${d.completed_word}"`);

@@ -154,6 +154,22 @@
           <span id="wordBufferText">–</span>
           <span class="buf-cursor"></span>
         </div>
+        <div class="last-word-row" style="margin-top:8px">
+          <span class="last-word-label">Target:</span>
+          <span class="last-word-val" id="phraseAssistTarget">Hi, my name is Benson.</span>
+        </div>
+        <div class="last-word-row" style="margin-top:6px">
+          <span class="last-word-label">Suggestion:</span>
+          <span class="last-word-val" id="phraseAssistSuggestion">HI</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px">
+          <button class="action-btn secondary-btn" onclick="setPhraseAssist('intro')" style="font-size:.72rem;padding:8px">Intro</button>
+          <button class="action-btn secondary-btn" onclick="setPhraseAssist('help')" style="font-size:.72rem;padding:8px">Help</button>
+          <button class="action-btn secondary-btn" onclick="setPhraseAssist('thanks')" style="font-size:.72rem;padding:8px">Thanks</button>
+          <button class="action-btn secondary-btn" onclick="setPhraseAssist('love')" style="font-size:.72rem;padding:8px">Love</button>
+          <button class="action-btn secondary-btn" onclick="setPhraseAssist('yes')" style="font-size:.72rem;padding:8px">Yes</button>
+          <button class="action-btn secondary-btn" onclick="setPhraseAssist('no')" style="font-size:.72rem;padding:8px">No</button>
+        </div>
         <div class="last-word-row">
           <span class="last-word-label">Last word:</span>
           <span class="last-word-val" id="lastWordVal">—</span>
@@ -161,12 +177,12 @@
             <i data-lucide="volume-2" width="13" height="13"></i>
           </button>
         </div>
-        <!-- Next Word: commit current letters as a complete word immediately -->
+        <!-- Confirm Word: accepts the current assist suggestion when available -->
         <button class="action-btn speak-btn" id="nextWordBtn" onclick="flushWord()"
                 style="margin-top:10px;width:100%;font-size:.82rem;"
-                title="Commit the current letters as a complete word now (without waiting)">
+                title="Confirm the current suggestion or commit the current letters now">
           <i data-lucide="corner-down-right" width="14" height="14"></i>
-          Next Word ⏎
+          Confirm Word
         </button>
         <button class="action-btn secondary-btn" id="demoIntroBtn" onclick="demoIntroPhrase()"
                 style="margin-top:8px;width:100%;font-size:.82rem;"

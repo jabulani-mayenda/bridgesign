@@ -88,6 +88,16 @@ a11 = WordAssembler()
 a11._buf = list("CCLD")
 check("C/O correction  ", flush_word(a11), "COLD")
 
+# Test 12: Phrase assist should turn partial H into HI
+a12 = WordAssembler()
+a12.push_letter("H")
+check("assist partial  ", a12.manual_flush(), "HI")
+check("assist sentence ", a12.sentence, "HI")
+
+# Test 13: Phrase assist fallback can advance when recognition misses
+check("assist fallback ", a12.manual_flush(), "MY")
+check("assist progress ", a12.sentence, "HI MY")
+
 print()
 if errors == 0:
     print("ALL TESTS PASSED")

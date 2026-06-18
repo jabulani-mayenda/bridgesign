@@ -104,6 +104,15 @@ PHRASE_DISPLAY_MAP = {
     "I LOVE YOU": "I love you.",
 }
 
+ASSIST_PHRASES = {
+    "intro": ["HI", "MY", "NAME", "IS", "BENSON"],
+    "help": ["I", "NEED", "HELP"],
+    "thanks": ["THANK", "YOU"],
+    "love": ["I", "LOVE", "YOU"],
+    "yes": ["YES"],
+    "no": ["NO"],
+}
+
 
 class WordAssembler:
     """
@@ -220,6 +229,7 @@ class WordAssembler:
             "sentence":           self.sentence,
             "completed_word":     completed_word,
             "completed_sentence": completed_sentence,
+            "assist":             self.assist_state(),
         }
 
     def reset(self):
@@ -232,6 +242,8 @@ class WordAssembler:
         self.sentence      = ""
         self._last_letter = ""
         self._last_letter_ts = None
+        self._assist_key = "intro"
+        self._assist_words = ASSIST_PHRASES["intro"].copy()
 
     def set_phrase(self, phrase: str) -> str:
         """Replace the active sentence with a complete display phrase."""
@@ -242,6 +254,16 @@ class WordAssembler:
         self._last_word_ts = time.time() if words else None
         self.sentence = self._format_sentence(words)
         return self.sentence
+
+    def set_assist_phrase(self, key: str) -> dict:
+        """Pick the phrase that Confirm Word should help build."""
+        safe_key = str(key or "intro").strip().lower()
+        if safe_key not in ASSIST_PHRASES:
+            safe_key = "intro"
+        self.reset()
+        self._assist_key = safe_key
+        self._assist_words = ASSIST_PHRASES[safe_key].copy()
+        return self.assist_state()
 
     def has_pending_letters(self) -> bool:
         """True while the user is actively building a finger-spelled word."""
@@ -254,6 +276,16 @@ class WordAssembler:
         Immediately commit the current buffer as a word — called when the
         user presses the 'Next Word' button, no need to wait for timeout.
         """
+        assist_word = self._assist_suggestion()
+        if assist_word:
+            self._buf = []
+            self._last_letter = ""
+            self._last_letter_ts = None
+            now = time.time()
+            self._last_hand_ts = now
+            self._commit_word(assist_word, now)
+            return assist_word
+
         if not self._buf:
             return ""
         now = time.time()
@@ -269,8 +301,11 @@ class WordAssembler:
         without consuming the buffer. Used to show a live preview.
         """
         if not self._buf:
-            return ""
+            return self._assist_suggestion()
         raw = "".join(self._buf)
+        assisted = self._assist_suggestion(raw)
+        if assisted:
+            return assisted
         return self._map_word(raw if len(raw) == 1 else self._validate(raw))
 
     def _flush(self) -> str:
@@ -310,6 +345,46 @@ class WordAssembler:
         self._buf = []
         self._last_letter = ""
         self._last_letter_ts = None
+
+    def assist_state(self) -> dict:
+        raw = "".join(self._buf)
+        suggestion = self._assist_suggestion(raw)
+        next_word = self._next_assist_word()
+        target = self._format_sentence(self._assist_words)
+        return {
+            "key": self._assist_key,
+            "target": target,
+            "next_word": next_word,
+            "suggestion": suggestion,
+            "progress": len(self._words),
+            "total": len(self._assist_words),
+        }
+
+    def _next_assist_word(self) -> str:
+        if not self._assist_words:
+            return ""
+        index = min(len(self._words), len(self._assist_words) - 1)
+        if len(self._words) >= len(self._assist_words):
+            return ""
+        return self._assist_words[index]
+
+    def _assist_suggestion(self, raw: str = "") -> str:
+        target = self._next_assist_word()
+        if not target:
+            return ""
+        clean = str(raw or "").strip().upper()
+        if not clean:
+            return target
+        if target.startswith(clean):
+            return target
+        if clean in target:
+            return target
+        if len(clean) == 1:
+            return target
+        corrected = self._best_confusable_correction(clean)
+        if corrected == target:
+            return target
+        return ""
 
     @staticmethod
     def _map_word(word: str) -> str:

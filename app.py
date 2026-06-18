@@ -1194,6 +1194,7 @@ def infer_frame():
         "word_buffer":        asm["word_buffer"]        if s["mode"] == "word" else "",
         "last_word":          asm["last_word"]          if s["mode"] == "word" else "",
         "sentence":           asm["sentence"]           if s["mode"] == "word" else "",
+        "assist":             asm["assist"]             if s["mode"] == "word" else {},
         "completed_sentence": (asm["completed_sentence"] or "") if s["mode"] == "word" else "",
         "completed_word":     (asm["completed_word"]     or "") if s["mode"] == "word" else "",
         "frame_count":        s.get("frame_count", 0),
@@ -1248,6 +1249,7 @@ def infer_landmarks():
         "motion_magnitude": 0.0, "frame_motion": 0.0,
         "mode": s["mode"], "word_buffer": "", "last_word": "",
         "sentence": "", "completed_sentence": "", "completed_word": "",
+        "assist": {},
         "frame_count": s.get("frame_count", 0),
         "tracked_count": s.get("tracked_count", 0),
         "consecutive": s.get("consecutive", 0),
@@ -1269,6 +1271,7 @@ def infer_landmarks():
         empty_response["word_buffer"] = asm["word_buffer"] if s["mode"] == "word" else ""
         empty_response["last_word"] = asm["last_word"] if s["mode"] == "word" else ""
         empty_response["sentence"] = asm["sentence"] if s["mode"] == "word" else ""
+        empty_response["assist"] = asm["assist"] if s["mode"] == "word" else {}
         empty_response["completed_sentence"] = (asm["completed_sentence"] or "") if s["mode"] == "word" else ""
         empty_response["completed_word"] = (asm["completed_word"] or "") if s["mode"] == "word" else ""
         empty_response["server_timing_ms"] = _perf_ms(started_perf)
@@ -1411,6 +1414,7 @@ def infer_landmarks():
         "word_buffer":        asm["word_buffer"]        if s["mode"] == "word" else "",
         "last_word":          asm["last_word"]          if s["mode"] == "word" else "",
         "sentence":           asm["sentence"]           if s["mode"] == "word" else "",
+        "assist":             asm["assist"]             if s["mode"] == "word" else {},
         "completed_sentence": (asm["completed_sentence"] or "") if s["mode"] == "word" else "",
         "completed_word":     (asm["completed_word"]     or "") if s["mode"] == "word" else "",
         "frame_count":        s.get("frame_count", 0),
@@ -1515,6 +1519,7 @@ def assembler_flush():
         "word_buffer":      asm["word_buffer"],
         "last_word":        asm["last_word"],
         "sentence":         asm["sentence"],
+        "assist":           asm["assist"],
         "completed_word":   asm["completed_word"] or word,
         "completed_sentence": asm["completed_sentence"] or "",
     })
@@ -1533,6 +1538,7 @@ def assembler_undo():
         "word_buffer": asm["word_buffer"],
         "last_word": asm["last_word"],
         "sentence": asm["sentence"],
+        "assist": asm["assist"],
         "completed_word": "",
         "completed_sentence": "",
     })
@@ -1550,6 +1556,7 @@ def assembler_clear_word():
         "word_buffer": asm["word_buffer"],
         "last_word": asm["last_word"],
         "sentence": asm["sentence"],
+        "assist": asm["assist"],
         "completed_word": "",
         "completed_sentence": "",
     })
@@ -1567,6 +1574,26 @@ def assembler_demo_intro():
         "word_buffer": asm["word_buffer"],
         "last_word": asm["last_word"],
         "sentence": asm["sentence"] or sentence,
+        "assist": asm["assist"],
+        "completed_word": "",
+        "completed_sentence": "",
+    })
+
+
+@app.route("/api/assembler/assist", methods=["POST"])
+@login_required
+def assembler_assist():
+    username = session["username"]
+    s = _get_inference_session(username)
+    data = request.get_json(silent=True) or {}
+    assist = s["assembler"].set_assist_phrase(data.get("phrase", "intro"))
+    asm = s["assembler"].tick(hand_present=False)
+    return jsonify({
+        "ok": True,
+        "word_buffer": asm["word_buffer"],
+        "last_word": asm["last_word"],
+        "sentence": asm["sentence"],
+        "assist": assist,
         "completed_word": "",
         "completed_sentence": "",
     })
