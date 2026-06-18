@@ -73,6 +73,13 @@ MAX_BUFFER_LEN     = 22    # safeguard: auto-flush if buffer grows too long
 WORD_DEDUP_SEC     = 0.8   # ignore the same gesture word if repeated within this window
 LETTER_DEDUP_SEC   = 0.85  # absorbs held-sign/tracking stutter; doubles are recovered on validation
 
+CONFUSABLE_LETTERS = {
+    "C": "O",
+    "O": "C",
+    "D": "L",
+    "L": "D",
+}
+
 SIGN_WORD_MAP = {
     "I": "I",
     "A": "A",
@@ -335,7 +342,9 @@ class WordAssembler:
           2. Full dedup  (HELLLO → HELLO)
           3. Selective expansion — insert one repeat at each position and
              check the dictionary  (recovers HELO → HELLO, WORL → WORLD …)
-          4. Raw fallback — valid finger-spelled content not in dictionary
+          4. Confusable correction — swap one/two lookalike letters
+             (recovers HEDP → HELP, CCLD → COLD)
+          5. Raw fallback — valid finger-spelled content not in dictionary
         """
         if raw.lower() in _KNOWN_WORDS:
             return raw
@@ -345,6 +354,9 @@ class WordAssembler:
         expanded = self._best_expansion(deduped)
         if expanded and expanded.lower() in _KNOWN_WORDS:
             return expanded
+        corrected = self._best_confusable_correction(deduped)
+        if corrected and corrected.lower() in _KNOWN_WORDS:
+            return corrected
         # Return raw — not in dictionary but still valid finger-spelled content
         return raw
 
@@ -377,4 +389,36 @@ class WordAssembler:
             candidate = s[:i] + ch + s[i:]   # repeat s[i] once
             if candidate.lower() in _KNOWN_WORDS:
                 return candidate
+        return ""
+
+    @staticmethod
+    def _best_confusable_correction(s: str) -> str:
+        """
+        Try swapping visually similar letters. We prefer a single correction,
+        then allow two corrections for short dictionary words where two close
+        hand shapes were both misread.
+        """
+        if not s:
+            return ""
+
+        chars = list(s)
+        positions = [i for i, ch in enumerate(chars) if ch in CONFUSABLE_LETTERS]
+
+        for i in positions:
+            ch = chars[i]
+            replacement = CONFUSABLE_LETTERS.get(ch)
+            candidate = chars.copy()
+            candidate[i] = replacement
+            candidate = "".join(candidate)
+            if candidate.lower() in _KNOWN_WORDS:
+                return candidate
+
+        for pos_index, i in enumerate(positions):
+            for j in positions[pos_index + 1:]:
+                candidate_chars = chars.copy()
+                candidate_chars[i] = CONFUSABLE_LETTERS[candidate_chars[i]]
+                candidate_chars[j] = CONFUSABLE_LETTERS[candidate_chars[j]]
+                candidate = "".join(candidate_chars)
+                if candidate.lower() in _KNOWN_WORDS:
+                    return candidate
         return ""

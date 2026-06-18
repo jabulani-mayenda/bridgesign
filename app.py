@@ -60,6 +60,12 @@ LIVE_GESTURES_ENABLED = os.environ.get("BRIDGESIGN_LIVE_GESTURES", "0") == "1"
 # Minimum confidence for a static sign to be "locked" (protected from gesture override)
 STATIC_LOCK_CONFIDENCE   = 0.55          # protect usable letter reads from gesture override
 STATIC_MOTION_LETTER_MIN_CONF = 0.65     # J/Z are noisy as static poses; require a stronger read
+CONFUSABLE_LETTER_MIN_CONF = {
+    "C": 0.40,
+    "D": 0.40,
+    "L": 0.40,
+    "O": 0.40,
+}
 
 # Hand plausibility: reject hallucinated detections on non-hand objects
 MIN_HAND_BBOX_AREA_RATIO = 0.0015       # tolerate webcam-distance hands; aspect gate still rejects obvious non-hands
@@ -482,6 +488,8 @@ def _predict_static_sign(features):
     if conf < config.MIN_PREDICTION_CONFIDENCE or label in ("", "Unknown", "Error"):
         return "", 0.0
     if label in GESTURE_ONLY_LABELS and conf < STATIC_MOTION_LETTER_MIN_CONF:
+        return "", 0.0
+    if label in CONFUSABLE_LETTER_MIN_CONF and conf < CONFUSABLE_LETTER_MIN_CONF[label]:
         return "", 0.0
     # Do not suppress J/Z here. They can be read by either the static model or
     # the motion model, and the live decider keeps word gestures separate.

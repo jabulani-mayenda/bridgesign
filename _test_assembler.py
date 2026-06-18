@@ -78,6 +78,16 @@ for word in ["HI", "MY", "NAME", "IS", "BENSON"]:
     a9.push_word(word)
 check("intro sentence   ", a9.sentence, "Hi, my name is Benson.")
 
+# Test 10: Confusable L/D correction should recover known words
+a10 = WordAssembler()
+a10._buf = list("HEDP")
+check("L/D correction  ", flush_word(a10), "HELP")
+
+# Test 11: Confusable C/O correction should recover known words
+a11 = WordAssembler()
+a11._buf = list("CCLD")
+check("C/O correction  ", flush_word(a11), "COLD")
+
 print()
 if errors == 0:
     print("ALL TESTS PASSED")
